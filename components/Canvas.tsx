@@ -680,6 +680,26 @@ export default function Canvas({
                     />
                   )}
 
+                  {/* Restore brush helper backdrop: show the original image at 50% opacity behind the cutout */}
+                  {tool === "brush-include" && artboard.bgRemoved && artboard.visible && !showVector && (
+                    <img
+                      className="artboard-img"
+                      src={artboard.originalSrc}
+                      alt="restore-original-backdrop"
+                      draggable={false}
+                      style={{
+                        position: "absolute",
+                        left: cropMode ? 0 : -artboard.crop.x,
+                        top: cropMode ? 0 : -artboard.crop.y,
+                        width: artboard.width,
+                        height: artboard.height,
+                        opacity: 0.5,
+                        zIndex: 1,
+                        pointerEvents: "none",
+                      }}
+                    />
+                  )}
+
                   {/* The image (or vector) */}
                   {showVector ? (
                     artboard.visible && (
@@ -792,7 +812,7 @@ export default function Canvas({
                           top: cropMode ? 0 : -artboard.crop.y,
                           width: artboard.width,
                           height: artboard.height,
-                          opacity: 0.65,
+                          opacity: 0.9,
                           pointerEvents: "none",
                           zIndex: 8,
                           WebkitMaskImage: `url(${previewSrc})`,
