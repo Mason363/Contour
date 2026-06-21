@@ -23,29 +23,42 @@ const getTracer = async () => {
 };
 
 /** Map the friendly 0..100 trace settings onto ImageTracer's parameters. */
-const tracerOptions = (t: TraceSettings) => ({
-  // Two-colour deterministic palette: black foreground, white background.
-  numberofcolors: 2,
-  colorsampling: 0,
-  pal: [
-    { r: 0, g: 0, b: 0, a: 255 },
-    { r: 255, g: 255, b: 255, a: 255 },
-  ],
-  mincolorratio: 0,
-  // Detail: higher detail keeps smaller specks (lower pathomit).
-  pathomit: Math.round((100 - t.tolerance) / 100 * 12),
-  // Path optimization → straight-line error tolerance (simplifies polylines).
-  ltres: 0.01 + (t.pathOptimization / 100) * 4,
-  // Corner smoothness → spline (quadratic) error tolerance (rounds corners).
-  qtres: 0.01 + (t.cornerSmoothness / 100) * 4,
-  rightangleenhance: t.cornerSmoothness < 25,
-  linefilter: t.cornerSmoothness > 50,
-  roundcoords: 2,
-  strokewidth: 0,
-  scale: 1,
-  viewbox: true,
-  desc: false,
-});
+const tracerOptions = (t: TraceSettings) => {
+  const common = {
+    mincolorratio: 0,
+    // Detail: higher detail keeps smaller specks (lower pathomit).
+    pathomit: Math.round((100 - t.tolerance) / 100 * 12),
+    // Path optimization → straight-line error tolerance (simplifies polylines).
+    ltres: 0.01 + (t.pathOptimization / 100) * 4,
+    // Corner smoothness → spline (quadratic) error tolerance (rounds corners).
+    qtres: 0.01 + (t.cornerSmoothness / 100) * 4,
+    rightangleenhance: t.cornerSmoothness < 25,
+    linefilter: t.cornerSmoothness > 50,
+    roundcoords: 2,
+    strokewidth: 0,
+    scale: 1,
+    viewbox: true,
+    desc: false,
+  };
+
+  if (t.colorGrouping) {
+    return {
+      ...common,
+      numberofcolors: t.colorGroups || 8,
+      colorsampling: 2,
+    };
+  }
+
+  return {
+    ...common,
+    numberofcolors: 2,
+    colorsampling: 0,
+    pal: [
+      { r: 0, g: 0, b: 0, a: 255 },
+      { r: 255, g: 255, b: 255, a: 255 },
+    ],
+  };
+};
 
 /**
  * Build the binary (black-on-white) ImageData fed to the tracer for one
@@ -68,6 +81,19 @@ const buildTraceBitmap = async (a: Artboard, maxDim: number): Promise<ImageData>
   const data = src.data;
   const t = a.trace;
 
+  if (t.colorGrouping) {
+    // Keep colors, but composite transparent pixels on a white background with alpha=255.
+    for (let i = 0; i < data.length; i += 4) {
+      const alpha = data[i + 3];
+      const af = alpha / 255;
+      data[i] = Math.round(data[i] * af + 255 * (1 - af));
+      data[i + 1] = Math.round(data[i + 1] * af + 255 * (1 - af));
+      data[i + 2] = Math.round(data[i + 2] * af + 255 * (1 - af));
+      data[i + 3] = 255;
+    }
+    return src;
+  }
+
   for (let i = 0; i < data.length; i += 4) {
     const alpha = data[i + 3];
     let black: boolean;
@@ -89,12 +115,20 @@ const buildTraceBitmap = async (a: Artboard, maxDim: number): Promise<ImageData>
 };
 
 /** Keep only the dark (foreground) paths; drop the white background layer. */
-const keepForegroundPaths = (svg: string): string =>
+const keepForegroundPaths = (svg: string, isColor: boolean): string =>
   svg.replace(/<path\b[^>]*\/>/g, (tag) => {
     const fill = /fill="rgb\((\d+),(\d+),(\d+)\)"/.exec(tag);
     if (fill) {
-      const lum = (+fill[1] + +fill[2] + +fill[3]) / 3;
-      if (lum > 200) return ""; // background → discard
+      const r = +fill[1];
+      const g = +fill[2];
+      const b = +fill[3];
+      if (isColor) {
+        // Discard background if it is near-white (background of composite)
+        if (r > 248 && g > 248 && b > 248) return "";
+      } else {
+        const lum = (r + g + b) / 3;
+        if (lum > 200) return ""; // background → discard
+      }
     }
     return tag;
   });
@@ -112,7 +146,7 @@ export const traceToSvg = async (a: Artboard, preview = false): Promise<string> 
   const bitmap = await buildTraceBitmap(board, maxDim);
   const tracer = await getTracer();
   const raw: string = tracer.imagedataToSVG(bitmap, tracerOptions(a.trace));
-  return keepForegroundPaths(raw);
+  return keepForegroundPaths(raw, a.trace.colorGrouping);
 };
 
 export type SvgMode = "preview" | "display" | "export";
@@ -123,11 +157,13 @@ export type SvgMode = "preview" | "display" | "export";
  *  - "display"  solid black fills stretched to fill the artboard's vector view;
  *  - "export"   solid black fills at the SVG's native dimensions.
  */
-export const styleSvg = (svg: string, mode: SvgMode): string => {
+export const styleSvg = (svg: string, mode: SvgMode, isColor = false): string => {
   const style =
     mode === "preview"
       ? "path{fill:none !important;stroke:#22d3ee;stroke-width:1.25px;vector-effect:non-scaling-stroke}"
-      : "path{fill:#000 !important;stroke:none}";
+      : isColor
+        ? "path{stroke:none}"
+        : "path{fill:#000 !important;stroke:none}";
   const stretch = mode !== "export";
   return svg.replace(/<svg([^>]*)>/, (_m, attrs) => {
     let a = attrs;
@@ -142,11 +178,11 @@ export const styleSvg = (svg: string, mode: SvgMode): string => {
 /** Committed/export SVG: solid black fills at native size. */
 export const buildVectorSvg = async (a: Artboard): Promise<string> => {
   const svg = a.vectorSvg ?? (await traceToSvg(a));
-  return styleSvg(svg, "export");
+  return styleSvg(svg, "export", a.trace.colorGrouping);
 };
 
 /** Live preview SVG: cyan outlines, stretched to overlay the artboard. */
 export const buildPreviewSvg = async (a: Artboard): Promise<string> => {
   const svg = await traceToSvg(a, true);
-  return styleSvg(svg, "preview");
+  return styleSvg(svg, "preview", a.trace.colorGrouping);
 };

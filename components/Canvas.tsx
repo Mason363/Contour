@@ -5,10 +5,11 @@ import { Plus, Minus, Maximize2, Upload, Scissors } from "lucide-react";
 import type { Artboard, CropRect, BackgroundLayer } from "@/lib/types";
 import { activeSrc } from "@/lib/types";
 
-export type Tool = "move" | "crop" | "background";
+export type Tool = "move" | "crop" | "background" | "brush-object" | "brush-include" | "brush-remove";
 
 interface Props {
   artboard: Artboard | null;
+  artboards?: Artboard[];
   tool: Tool;
   previewSvg: string | null;
   vectorDisplaySvg: string | null;
@@ -16,6 +17,12 @@ interface Props {
   onBackgroundChange: (bg: BackgroundLayer) => void;
   onPickFiles: () => void;
   onLoadExample: (file: string) => void;
+
+  brushSize: number;
+  showComparisonSlider: boolean;
+  isComparing: boolean;
+  onUpdatePaintMask: (src: string) => void;
+  onUpdateObjectMask: (src: string) => void;
 }
 
 const EXAMPLES = ["bird.jpg", "dog.jpg", "lotus.jpg", "trees.jpg", "canyon.jpg"];
@@ -24,6 +31,7 @@ type HandleDir = "nw" | "ne" | "sw" | "se" | "n" | "s" | "w" | "e";
 
 export default function Canvas({
   artboard,
+  artboards = [],
   tool,
   previewSvg,
   vectorDisplaySvg,
@@ -31,6 +39,11 @@ export default function Canvas({
   onBackgroundChange,
   onPickFiles,
   onLoadExample,
+  brushSize,
+  showComparisonSlider,
+  isComparing,
+  onUpdatePaintMask,
+  onUpdateObjectMask,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
@@ -41,10 +54,158 @@ export default function Canvas({
   const pan = useRef({ active: false, x: 0, y: 0, sl: 0, st: 0 });
   const pendingScroll = useRef<{ left: number; top: number } | null>(null);
 
+  // Split-Screen comparison states
+  const [sliderX, setSliderX] = useState(50);
+  const [isAnimatingSlider, setIsAnimatingSlider] = useState(false);
+  const prevBgRemoved = useRef(artboard?.bgRemoved);
+
+  // Brush drawing states
+  const brushCanvasRef = useRef<HTMLCanvasElement>(null);
+  const isDrawing = useRef(false);
+  const lastPos = useRef({ x: 0, y: 0 });
+  const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
+
   const cropMode = tool === "crop" && !!artboard;
   // In crop mode the full image is shown; otherwise the cropped region.
   const displayW = artboard ? (cropMode ? artboard.width : artboard.crop.w) : 1;
   const displayH = artboard ? (cropMode ? artboard.height : artboard.crop.h) : 1;
+
+  // Trigger comparison wipe/sweep animation when background removal finishes
+  useEffect(() => {
+    if (artboard?.bgRemoved && !prevBgRemoved.current) {
+      setIsAnimatingSlider(true);
+      setSliderX(0);
+      
+      let start: number | null = null;
+      const duration = 1200; // 1.2s sweep animation
+      
+      const animate = (timestamp: number) => {
+        if (!start) start = timestamp;
+        const progress = timestamp - start;
+        const val = Math.min(100, (progress / duration) * 100);
+        setSliderX(val);
+        if (progress < duration) {
+          requestAnimationFrame(animate);
+        } else {
+          setIsAnimatingSlider(false);
+          setSliderX(50); // reset back to middle
+        }
+      };
+      
+      requestAnimationFrame(animate);
+    }
+    prevBgRemoved.current = artboard?.bgRemoved;
+  }, [artboard?.bgRemoved]);
+
+  // Draw existing mask onto active brush canvas
+  useEffect(() => {
+    const canvas = brushCanvasRef.current;
+    if (!canvas || !artboard) return;
+    const ctx = canvas.getContext("2d")!;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    const maskSrc = tool === "brush-object" ? artboard.objectMaskSrc : artboard.paintMaskSrc;
+    if (maskSrc) {
+      const img = new Image();
+      img.onload = () => {
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      };
+      img.src = maskSrc;
+    }
+  }, [artboard?.id, tool, artboard?.paintMaskSrc, artboard?.objectMaskSrc]);
+
+  const getMousePos = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = brushCanvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: (e.clientX - rect.left) / zoom,
+      y: (e.clientY - rect.top) / zoom,
+    };
+  };
+
+  const startBrush = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (e.button !== 0) return; // Left click only
+    isDrawing.current = true;
+    const pos = getMousePos(e);
+    lastPos.current = pos;
+    
+    const canvas = brushCanvasRef.current;
+    if (canvas) {
+      const ctx = canvas.getContext("2d")!;
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.y, brushSize / 2, 0, Math.PI * 2);
+      ctx.fillStyle = tool === "brush-include" 
+        ? "rgb(0, 255, 0)" 
+        : tool === "brush-remove" 
+        ? "rgb(255, 0, 0)" 
+        : "rgb(0, 0, 255)"; // object selection (blue)
+      ctx.fill();
+    }
+  };
+
+  const drawBrush = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const pos = getMousePos(e);
+    setCursorPos(pos);
+    
+    if (!isDrawing.current) return;
+    
+    const canvas = brushCanvasRef.current;
+    if (canvas) {
+      const ctx = canvas.getContext("2d")!;
+      ctx.beginPath();
+      ctx.moveTo(lastPos.current.x, lastPos.current.y);
+      ctx.lineTo(pos.x, pos.y);
+      ctx.strokeStyle = tool === "brush-include" 
+        ? "rgb(0, 255, 0)" 
+        : tool === "brush-remove" 
+        ? "rgb(255, 0, 0)" 
+        : "rgb(0, 0, 255)";
+      ctx.lineWidth = brushSize;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.stroke();
+      lastPos.current = pos;
+    }
+  };
+
+  const endBrush = () => {
+    if (!isDrawing.current) return;
+    isDrawing.current = false;
+    const canvas = brushCanvasRef.current;
+    if (canvas) {
+      const dataUrl = canvas.toDataURL("image/png");
+      if (tool === "brush-object") {
+        onUpdateObjectMask(dataUrl);
+      } else {
+        onUpdatePaintMask(dataUrl);
+      }
+    }
+  };
+
+  const startSliderDrag = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const artboardEl = e.currentTarget.parentElement;
+    if (!artboardEl) return;
+    
+    const onMove = (ev: MouseEvent) => {
+      const rect = artboardEl.getBoundingClientRect();
+      const x = ev.clientX - rect.left;
+      const pct = Math.max(0, Math.min(100, (x / rect.width) * 100));
+      setSliderX(pct);
+    };
+    
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+    
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  };
+
+  const isBrushingTool = (t: string) => ["brush-include", "brush-remove", "brush-object"].includes(t);
 
   // ----- Fit to view -----
   const fit = useCallback(() => {
@@ -233,6 +394,9 @@ export default function Canvas({
   }
 
   const showVector = artboard.view === "vector" && artboard.vectorSvg;
+  const parentArtboard = artboard.parentId
+    ? artboards.find((ab) => ab.id === artboard.parentId)
+    : null;
 
   return (
     <div className="stage">
@@ -248,45 +412,184 @@ export default function Canvas({
               className="artboard"
               style={{ width: displayW, height: displayH, transform: `scale(${zoom})` }}
             >
-              {/* Imported background, clipped to the artboard region */}
-              {artboard.background && !showVector && (
-                <div className="artboard-layer" style={{ overflow: "hidden" }}>
-                  <img
-                    src={artboard.background.src}
-                    alt="bg"
-                    draggable={false}
-                    style={{
-                      position: "absolute",
-                      left: (cropMode ? artboard.crop.x : 0) + artboard.background.offsetX,
-                      top: (cropMode ? artboard.crop.y : 0) + artboard.background.offsetY,
-                      width: artboard.background.naturalWidth * artboard.background.scale,
-                      height: artboard.background.naturalHeight * artboard.background.scale,
-                    }}
-                  />
-                </div>
-              )}
-
-              {/* The image (or vector) */}
-              {showVector ? (
-                <div className="vector-overlay" dangerouslySetInnerHTML={{ __html: vectorDisplaySvg ?? artboard.vectorSvg! }} />
-              ) : (
+              {/* Comparing state overlay (Compare button held down) */}
+              {isComparing && (
                 <img
                   className="artboard-img"
-                  src={activeSrc(artboard)}
-                  alt={artboard.name}
+                  src={artboard.originalSrc}
+                  alt="compare-before"
                   draggable={false}
                   style={{
+                    position: "absolute",
                     left: cropMode ? 0 : -artboard.crop.x,
                     top: cropMode ? 0 : -artboard.crop.y,
                     width: artboard.width,
                     height: artboard.height,
+                    zIndex: 100,
                   }}
                 />
               )}
 
-              {/* Live cyan vector preview overlay */}
-              {previewSvg && !showVector && !cropMode && (
-                <div className="vector-overlay" dangerouslySetInnerHTML={{ __html: previewSvg }} />
+              {/* A. Comparison split slider view */}
+              {(showComparisonSlider || isAnimatingSlider) && !isComparing ? (
+                <>
+                  {/* Bottom: Original image */}
+                  <img
+                    className="artboard-img"
+                    src={artboard.originalSrc}
+                    alt="original-bottom"
+                    draggable={false}
+                    style={{
+                      position: "absolute",
+                      left: cropMode ? 0 : -artboard.crop.x,
+                      top: cropMode ? 0 : -artboard.crop.y,
+                      width: artboard.width,
+                      height: artboard.height,
+                      zIndex: 1,
+                    }}
+                  />
+                  
+                  {/* Top: Cutout (or vector) with clip-path */}
+                  {showVector ? (
+                    artboard.visible && (
+                      <div
+                        className="vector-overlay"
+                        style={{
+                          zIndex: 2,
+                          clipPath: `inset(0 ${100 - sliderX}% 0 0)`,
+                        }}
+                        dangerouslySetInnerHTML={{ __html: vectorDisplaySvg ?? artboard.vectorSvg! }}
+                      />
+                    )
+                  ) : (
+                    artboard.visible && (
+                      <img
+                        className="artboard-img"
+                        src={activeSrc(artboard)}
+                        alt="processed-top"
+                        draggable={false}
+                        style={{
+                          position: "absolute",
+                          left: cropMode ? 0 : -artboard.crop.x,
+                          top: cropMode ? 0 : -artboard.crop.y,
+                          width: artboard.width,
+                          height: artboard.height,
+                          clipPath: `inset(0 ${100 - sliderX}% 0 0)`,
+                          zIndex: 2,
+                        }}
+                      />
+                    )
+                  )}
+
+                  {/* Vertical drag divider line */}
+                  <div
+                    style={{
+                      position: "absolute",
+                      left: `${sliderX}%`,
+                      top: 0,
+                      bottom: 0,
+                      width: "2px",
+                      background: "#fff",
+                      boxShadow: "0 0 4px rgba(0,0,0,0.5)",
+                      cursor: "ew-resize",
+                      zIndex: 12,
+                    }}
+                    onMouseDown={startSliderDrag}
+                  >
+                    {/* Drag handle badge */}
+                    <div
+                      style={{
+                        position: "absolute",
+                        top: "50%",
+                        left: "50%",
+                        transform: "translate(-50%, -50%)",
+                        width: "24px",
+                        height: "24px",
+                        borderRadius: "50%",
+                        background: "#fff",
+                        border: "2px solid var(--accent-color)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        boxShadow: "0 2px 4px rgba(0,0,0,0.3)",
+                        fontSize: "10px",
+                        fontWeight: "bold",
+                        color: "var(--accent-color)",
+                        userSelect: "none",
+                      }}
+                    >
+                      ↔
+                    </div>
+                  </div>
+                </>
+              ) : (
+                /* B. Normal rendering layers (no split slider active) */
+                <>
+                  {/* Imported background, clipped to the artboard region */}
+                  {artboard.background && !showVector && artboard.visible && (
+                    <div className="artboard-layer" style={{ overflow: "hidden" }}>
+                      <img
+                        src={artboard.background.src}
+                        alt="bg"
+                        draggable={false}
+                        style={{
+                          position: "absolute",
+                          left: (cropMode ? artboard.crop.x : 0) + artboard.background.offsetX,
+                          top: (cropMode ? artboard.crop.y : 0) + artboard.background.offsetY,
+                          width: artboard.background.naturalWidth * artboard.background.scale,
+                          height: artboard.background.naturalHeight * artboard.background.scale,
+                        }}
+                      />
+                    </div>
+                  )}
+
+                  {/* Parent image layer (if child vector is active and parent image is visible) */}
+                  {showVector && parentArtboard && parentArtboard.visible && (
+                    <img
+                      className="artboard-img parent-img"
+                      src={activeSrc(parentArtboard)}
+                      alt={parentArtboard.name}
+                      draggable={false}
+                      style={{
+                        position: "absolute",
+                        left: cropMode ? 0 : -artboard.crop.x,
+                        top: cropMode ? 0 : -artboard.crop.y,
+                        width: artboard.width,
+                        height: artboard.height,
+                        opacity: 0.6,
+                        zIndex: 1,
+                      }}
+                    />
+                  )}
+
+                  {/* The image (or vector) */}
+                  {showVector ? (
+                    artboard.visible && (
+                      <div className="vector-overlay" style={{ zIndex: 2 }} dangerouslySetInnerHTML={{ __html: vectorDisplaySvg ?? artboard.vectorSvg! }} />
+                    )
+                  ) : (
+                    artboard.visible && (
+                      <img
+                        className="artboard-img"
+                        src={activeSrc(artboard)}
+                        alt={artboard.name}
+                        draggable={false}
+                        style={{
+                          left: cropMode ? 0 : -artboard.crop.x,
+                          top: cropMode ? 0 : -artboard.crop.y,
+                          width: artboard.width,
+                          height: artboard.height,
+                          zIndex: 2,
+                        }}
+                      />
+                    )
+                  )}
+
+                  {/* Live cyan vector preview overlay */}
+                  {previewSvg && !showVector && !cropMode && artboard.visible && (
+                    <div className="vector-overlay" style={{ zIndex: 3 }} dangerouslySetInnerHTML={{ __html: previewSvg }} />
+                  )}
+                </>
               )}
 
               {/* Background drag surface */}
@@ -306,6 +609,63 @@ export default function Canvas({
                   imgH={artboard.height}
                   onBeginMove={(e) => beginCrop(e, "move")}
                   onBeginHandle={beginCrop}
+                />
+              )}
+
+              {/* User painted mask overlay (semi-transparent guide) */}
+              {isBrushingTool(tool) && (tool === "brush-object" ? artboard.objectMaskSrc : artboard.paintMaskSrc) && (
+                <img
+                  src={tool === "brush-object" ? artboard.objectMaskSrc! : artboard.paintMaskSrc!}
+                  alt="brush-guide"
+                  draggable={false}
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    opacity: 0.4,
+                    pointerEvents: "none",
+                    zIndex: 9,
+                    width: "100%",
+                    height: "100%",
+                  }}
+                />
+              )}
+
+              {/* Brush canvas overlay */}
+              {isBrushingTool(tool) && artboard.visible && (
+                <canvas
+                  ref={brushCanvasRef}
+                  width={displayW}
+                  height={displayH}
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    zIndex: 10,
+                    cursor: "crosshair",
+                    pointerEvents: "auto",
+                  }}
+                  onMouseDown={startBrush}
+                  onMouseMove={drawBrush}
+                  onMouseUp={endBrush}
+                  onMouseLeave={endBrush}
+                />
+              )}
+
+              {/* Circular cursor preview showing brush diameter */}
+              {isBrushingTool(tool) && cursorPos && (
+                <div
+                  style={{
+                    position: "absolute",
+                    left: cursorPos.x,
+                    top: cursorPos.y,
+                    width: brushSize,
+                    height: brushSize,
+                    borderRadius: "50%",
+                    border: "1px solid #fff",
+                    boxShadow: "0 0 3px rgba(0,0,0,0.8)",
+                    transform: "translate(-50%, -50%)",
+                    pointerEvents: "none",
+                    zIndex: 11,
+                  }}
                 />
               )}
             </div>

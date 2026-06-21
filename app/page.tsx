@@ -13,6 +13,7 @@ import {
   autoContentBounds,
 } from "@/lib/image";
 import { removeImageBackground } from "@/lib/bg";
+import { extractAlphaMask, applyBgRemovalMasks } from "@/lib/mask";
 import { buildPreviewSvg, traceToSvg, styleSvg } from "@/lib/vectorize";
 import { exportArtboard, exportAllZip, copyArtboardToClipboard, downloadBlob } from "@/lib/export";
 
@@ -25,6 +26,9 @@ export default function ContourApp() {
   const [artboards, setArtboards] = useState<Artboard[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [tool, setTool] = useState<Tool>("move");
+  const [brushSize, setBrushSize] = useState<number>(20);
+  const [showComparisonSlider, setShowComparisonSlider] = useState<boolean>(false);
+  const [isComparing, setIsComparing] = useState<boolean>(false);
 
   const [livePreview, setLivePreview] = useState(false);
   const [previewSvg, setPreviewSvg] = useState<string | null>(null);
@@ -94,6 +98,15 @@ export default function ContourApp() {
         trace: defaultTrace(),
         vectorSvg: null,
         view: "image",
+        visible: true,
+        baseMaskSrc: null,
+        paintMaskSrc: null,
+        objectMaskSrc: null,
+        bgRemovalStrength: 50,
+        objectSelectionMode: "keep",
+        bgRemovalModel: "isnet",
+        bgRemovalDevice: "cpu",
+        bgRemovalWorker: true,
       };
       setArtboards((prev) => [...prev, ab]);
       setActiveId(ab.id);
@@ -192,11 +205,15 @@ export default function ContourApp() {
 
   const removeArtboard = (id: string) => {
     setArtboards((prev) => {
-      const next = prev.filter((a) => a.id !== id);
+      const next = prev.filter((a) => a.id !== id && a.parentId !== id);
       if (id === activeId) setActiveId(next.length ? next[next.length - 1].id : null);
       return next;
     });
   };
+
+  const toggleArtboardVisibility = useCallback((id: string) => {
+    setArtboards((prev) => prev.map((a) => (a.id === id ? { ...a, visible: !a.visible } : a)));
+  }, []);
 
   // ----- Background removal -----
   const onRemoveBg = async () => {
@@ -204,9 +221,28 @@ export default function ContourApp() {
     setBgBusy(true);
     setBgProgress(0);
     try {
-      const processed = await removeImageBackground(active.originalSrc, (p) => setBgProgress(p));
+      const processed = await removeImageBackground(active.originalSrc, (p) => setBgProgress(p), {
+        model: active.bgRemovalModel,
+        device: active.bgRemovalDevice,
+        proxyToWorker: active.bgRemovalWorker,
+      });
+      const baseMask = await extractAlphaMask(processed);
+      const finalCutout = await applyBgRemovalMasks(
+        active.originalSrc,
+        baseMask,
+        active.paintMaskSrc,
+        active.objectMaskSrc,
+        active.bgRemovalStrength,
+        active.objectSelectionMode
+      );
       setArtboards((prev) => prev.map((a) =>
-        a.id === active.id ? { ...a, processedSrc: processed, bgRemoved: true, view: "image" } : a));
+        a.id === active.id ? {
+          ...a,
+          baseMaskSrc: baseMask,
+          processedSrc: finalCutout,
+          bgRemoved: true,
+          view: "image"
+        } : a));
       showToast("Background removed");
     } catch (err) {
       console.error(err);
@@ -217,7 +253,93 @@ export default function ContourApp() {
     }
   };
 
-  const onRestoreOriginal = () => patchActive({ processedSrc: null, bgRemoved: false });
+  const onRestoreOriginal = () => patchActive({ processedSrc: null, bgRemoved: false, baseMaskSrc: null });
+
+  const onUpdateBgRemoval = async (patch: {
+    bgRemovalStrength?: number;
+    paintMaskSrc?: string | null;
+    objectMaskSrc?: string | null;
+    objectSelectionMode?: "keep" | "remove" | null;
+    bgRemovalModel?: "isnet" | "isnet_fp16" | "isnet_quint8";
+    bgRemovalDevice?: "cpu" | "gpu";
+    bgRemovalWorker?: boolean;
+  }) => {
+    if (!active) return;
+
+    const nextStrength = patch.bgRemovalStrength !== undefined ? patch.bgRemovalStrength : active.bgRemovalStrength;
+    const nextPaintMask = patch.paintMaskSrc !== undefined ? patch.paintMaskSrc : active.paintMaskSrc;
+    const nextObjectMask = patch.objectMaskSrc !== undefined ? patch.objectMaskSrc : active.objectMaskSrc;
+    const nextObjectMode = patch.objectSelectionMode !== undefined ? patch.objectSelectionMode : active.objectSelectionMode;
+    const nextModel = patch.bgRemovalModel !== undefined ? patch.bgRemovalModel : active.bgRemovalModel;
+    const nextDevice = patch.bgRemovalDevice !== undefined ? patch.bgRemovalDevice : active.bgRemovalDevice;
+    const nextWorker = patch.bgRemovalWorker !== undefined ? patch.bgRemovalWorker : active.bgRemovalWorker;
+
+    let nextProcessed = active.processedSrc;
+
+    if (active.bgRemoved && active.baseMaskSrc && (
+      patch.bgRemovalStrength !== undefined ||
+      patch.paintMaskSrc !== undefined ||
+      patch.objectMaskSrc !== undefined ||
+      patch.objectSelectionMode !== undefined
+    )) {
+      try {
+        nextProcessed = await applyBgRemovalMasks(
+          active.originalSrc,
+          active.baseMaskSrc,
+          nextPaintMask,
+          nextObjectMask,
+          nextStrength,
+          nextObjectMode
+        );
+      } catch (err) {
+        console.error("Failed to re-composite masks:", err);
+      }
+    }
+
+    setArtboards((prev) => prev.map((a) =>
+      a.id === active.id ? {
+        ...a,
+        bgRemovalStrength: nextStrength,
+        paintMaskSrc: nextPaintMask,
+        objectMaskSrc: nextObjectMask,
+        objectSelectionMode: nextObjectMode,
+        bgRemovalModel: nextModel,
+        bgRemovalDevice: nextDevice,
+        bgRemovalWorker: nextWorker,
+        processedSrc: nextProcessed,
+      } : a
+    ));
+  };
+
+  const onClearBrushEdits = async () => {
+    if (!active) return;
+
+    let nextProcessed = active.processedSrc;
+    if (active.bgRemoved && active.baseMaskSrc) {
+      try {
+        nextProcessed = await applyBgRemovalMasks(
+          active.originalSrc,
+          active.baseMaskSrc,
+          null,
+          null,
+          active.bgRemovalStrength,
+          active.objectSelectionMode
+        );
+      } catch (err) {
+        console.error("Failed to clear brush edits:", err);
+      }
+    }
+
+    setArtboards((prev) => prev.map((a) =>
+      a.id === active.id ? {
+        ...a,
+        paintMaskSrc: null,
+        objectMaskSrc: null,
+        processedSrc: nextProcessed,
+      } : a
+    ));
+    showToast("Brush edits cleared");
+  };
 
   // ----- Crop helpers -----
   const onAutoCrop = async () => {
@@ -271,15 +393,64 @@ export default function ContourApp() {
       let working = active;
       if (active.trace.removeBackgroundFirst && !active.processedSrc) {
         setBgProgress(0);
-        const processed = await removeImageBackground(active.originalSrc, (p) => setBgProgress(p));
-        working = { ...active, processedSrc: processed };
+        const processed = await removeImageBackground(active.originalSrc, (p) => setBgProgress(p), {
+          model: active.bgRemovalModel,
+          device: active.bgRemovalDevice,
+          proxyToWorker: active.bgRemovalWorker,
+        });
+        const baseMask = await extractAlphaMask(processed);
+        const finalCutout = await applyBgRemovalMasks(
+          active.originalSrc,
+          baseMask,
+          active.paintMaskSrc,
+          active.objectMaskSrc,
+          active.bgRemovalStrength,
+          active.objectSelectionMode
+        );
+        working = { ...active, processedSrc: finalCutout, baseMaskSrc: baseMask, bgRemoved: true };
         setBgProgress(null);
       }
       const raw = await traceToSvg(working);
-      setArtboards((prev) => prev.map((a) =>
-        a.id === active.id
-          ? { ...a, processedSrc: working.processedSrc, bgRemoved: working.processedSrc ? true : a.bgRemoved, vectorSvg: raw, view: "vector" }
-          : a));
+      
+      const traceId = uid();
+      const newArtboard: Artboard = {
+        id: traceId,
+        name: active.name.endsWith(" (Trace)") ? active.name : `${active.name} (Trace)`,
+        parentId: active.parentId ?? active.id,
+        originalSrc: active.originalSrc,
+        width: active.width,
+        height: active.height,
+        mimeType: active.mimeType,
+        processedSrc: working.processedSrc,
+        bgRemoved: working.processedSrc ? true : active.bgRemoved,
+        crop: { ...active.crop },
+        background: active.background ? { ...active.background } : null,
+        trace: { ...active.trace },
+        vectorSvg: raw,
+        view: "vector",
+        visible: true,
+        baseMaskSrc: working.baseMaskSrc ?? null,
+        paintMaskSrc: working.paintMaskSrc ?? null,
+        objectMaskSrc: working.objectMaskSrc ?? null,
+        bgRemovalStrength: working.bgRemovalStrength ?? 50,
+        objectSelectionMode: working.objectSelectionMode ?? "keep",
+        bgRemovalModel: working.bgRemovalModel ?? "isnet",
+        bgRemovalDevice: working.bgRemovalDevice ?? "cpu",
+        bgRemovalWorker: working.bgRemovalWorker ?? true,
+      };
+
+      setArtboards((prev) => {
+        const idx = prev.findIndex((ab) => ab.id === active.id);
+        if (idx === -1) return [...prev, newArtboard];
+        const next = [...prev];
+        // Turn off parent/original image visibility
+        next[idx] = { ...next[idx], visible: false };
+        // Insert new trace right after parent
+        next.splice(idx + 1, 0, newArtboard);
+        return next;
+      });
+
+      setActiveId(traceId);
       showToast("Vectors generated");
     } catch (err) {
       console.error(err);
@@ -314,6 +485,7 @@ export default function ContourApp() {
     active?.crop.x, active?.crop.y, active?.crop.w, active?.crop.h,
     active?.trace.silhouette, active?.trace.threshold, active?.trace.tolerance,
     active?.trace.cornerSmoothness, active?.trace.pathOptimization,
+    active?.trace.colorGrouping, active?.trace.colorGroups,
   ]);
 
   // ----- Export -----
@@ -356,10 +528,12 @@ export default function ContourApp() {
           onSelect={(id) => { setActiveId(id); setTool("move"); }}
           onRemove={removeArtboard}
           onAdd={() => fileInputRef.current?.click()}
+          onToggleVisible={toggleArtboardVisibility}
         />
 
         <Canvas
           artboard={active}
+          artboards={artboards}
           tool={tool}
           previewSvg={previewSvg}
           vectorDisplaySvg={vectorDisplaySvg}
@@ -367,6 +541,11 @@ export default function ContourApp() {
           onBackgroundChange={(bg) => patchActive({ background: bg })}
           onPickFiles={() => fileInputRef.current?.click()}
           onLoadExample={loadExample}
+          brushSize={brushSize}
+          showComparisonSlider={showComparisonSlider}
+          isComparing={isComparing}
+          onUpdatePaintMask={(src) => onUpdateBgRemoval({ paintMaskSrc: src })}
+          onUpdateObjectMask={(src) => onUpdateBgRemoval({ objectMaskSrc: src })}
         />
 
         <RightPanel
@@ -397,6 +576,14 @@ export default function ContourApp() {
           onCopy={onCopy}
           onExportAll={onExportAll}
           onPickFiles={() => fileInputRef.current?.click()}
+          brushSize={brushSize}
+          setBrushSize={setBrushSize}
+          showComparisonSlider={showComparisonSlider}
+          setShowComparisonSlider={setShowComparisonSlider}
+          isComparing={isComparing}
+          setIsComparing={setIsComparing}
+          onUpdateBgRemoval={onUpdateBgRemoval}
+          onClearBrushEdits={onClearBrushEdits}
         />
       </div>
 

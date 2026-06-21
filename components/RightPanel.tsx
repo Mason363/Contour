@@ -1,9 +1,10 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import {
   Scissors, Wand2, Eraser, ImageDown, Crop, Sparkles, Loader2,
   RotateCcw, Image as ImageIcon, Copy, Package, Download,
+  AlertCircle, ChevronDown, ChevronUp
 } from "lucide-react";
 import type { Artboard, TraceSettings, CropRect } from "@/lib/types";
 import type { Tool } from "./Canvas";
@@ -47,6 +48,23 @@ interface Props {
   onExportAll: () => void;
 
   onPickFiles: () => void;
+
+  brushSize: number;
+  setBrushSize: (s: number) => void;
+  showComparisonSlider: boolean;
+  setShowComparisonSlider: (s: boolean) => void;
+  isComparing: boolean;
+  setIsComparing: (c: boolean) => void;
+  onUpdateBgRemoval: (patch: {
+    bgRemovalStrength?: number;
+    paintMaskSrc?: string | null;
+    objectMaskSrc?: string | null;
+    objectSelectionMode?: "keep" | "remove" | null;
+    bgRemovalModel?: "isnet" | "isnet_fp16" | "isnet_quint8";
+    bgRemovalDevice?: "cpu" | "gpu";
+    bgRemovalWorker?: boolean;
+  }) => void;
+  onClearBrushEdits: () => void;
 }
 
 function Slider({
@@ -76,12 +94,13 @@ function Slider({
 
 export default function RightPanel(p: Props) {
   const a = p.artboard;
+  const [isTracingExpanded, setIsTracingExpanded] = useState(false);
 
   if (!a) {
     return (
       <aside className="panel">
-        <div className="panel-inner">
-          <div className="section">
+        <div className="panel-inner" style={{ minHeight: "100%", display: "flex", flexDirection: "column" }}>
+          <div className="section" style={{ flex: 1 }}>
             <div className="section-head">
               <Sparkles size={16} />
               <span className="section-title">Welcome to Contour</span>
@@ -94,6 +113,27 @@ export default function RightPanel(p: Props) {
               <ImageDown size={15} /> Import image
             </button>
           </div>
+
+          <footer className="save-warning-footer" style={{ marginTop: "auto" }}>
+            <AlertCircle size={14} style={{ color: "var(--text-muted)", flexShrink: 0, marginTop: "2px" }} />
+            <div className="save-warning-text">
+              Contour runs entirely in your browser. Work is not saved to a server. Leaving or refreshing this page will discard your layout.
+            </div>
+          </footer>
+
+          <footer className="about-footer">
+            <div className="about-author">Made with ❤️ by Mason Chen</div>
+            <div className="about-links">
+              <a href="https://github.com/Mason363" target="_blank" rel="noopener noreferrer" className="about-link">
+                <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: "middle" }}><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path></svg>
+                <span>GitHub</span>
+              </a>
+              <a href="https://buymeacoffee.com/masonchen" target="_blank" rel="noopener noreferrer" className="about-link">
+                <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: "middle" }}><path d="M18 8h1a4 4 0 0 1 0 8h-1"></path><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"></path><line x1="6" y1="1" x2="6" y2="4"></line><line x1="10" y1="1" x2="10" y2="4"></line><line x1="14" y1="1" x2="14" y2="4"></line></svg>
+                <span>Buy Me a Coffee</span>
+              </a>
+            </div>
+          </footer>
         </div>
       </aside>
     );
@@ -124,7 +164,7 @@ export default function RightPanel(p: Props) {
           ) : (
             <div className="stack">
               <button
-                className="btn btn-primary btn-block"
+                className="btn btn-primary btn-block btn-huge"
                 onClick={p.onRemoveBg}
                 disabled={p.bgBusy}
               >
@@ -138,8 +178,172 @@ export default function RightPanel(p: Props) {
               )}
             </div>
           )}
-          <p className="hint" style={{ marginTop: 10 }}>
-            Local AI matting (ISNet). The first run downloads the model once.
+
+          {/* AI Model Settings */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, background: "var(--hover-bg)", padding: "10px 12px", borderRadius: 6, border: "1px solid var(--border-main)", marginTop: 12 }}>
+            <div style={{ fontSize: "0.74rem", fontWeight: 600, color: "var(--text-main)", display: "flex", alignItems: "center", gap: 5 }}>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--cyan)" }} />
+              AI Model Settings
+            </div>
+            
+            <div className="field" style={{ marginBottom: 0 }}>
+              <label className="field-label">Model Quality</label>
+              <select
+                className="select"
+                value={a.bgRemovalModel || "isnet"}
+                onChange={(e) => p.onUpdateBgRemoval({ bgRemovalModel: e.target.value as any })}
+              >
+                <option value="isnet">High Quality (44MB)</option>
+                <option value="isnet_fp16">Balanced (22MB)</option>
+                <option value="isnet_quint8">Fast / Quantized (11MB)</option>
+              </select>
+            </div>
+
+            <div className="field" style={{ marginBottom: 0 }}>
+              <label className="field-label">Device Hardware</label>
+              <div className="segmented" style={{ background: "var(--active-bg)", borderRadius: 6, padding: 2 }}>
+                <span
+                  className={`segment ${a.bgRemovalDevice === "cpu" ? "active" : ""}`}
+                  style={{ flex: 1, textAlign: "center", fontSize: "0.68rem", cursor: "pointer", padding: "4px 0", borderRadius: 4 }}
+                  onClick={() => p.onUpdateBgRemoval({ bgRemovalDevice: "cpu" })}
+                >
+                  CPU
+                </span>
+                <span
+                  className={`segment ${a.bgRemovalDevice === "gpu" ? "active" : ""}`}
+                  style={{ flex: 1, textAlign: "center", fontSize: "0.68rem", cursor: "pointer", padding: "4px 0", borderRadius: 4 }}
+                  onClick={() => p.onUpdateBgRemoval({ bgRemovalDevice: "gpu" })}
+                >
+                  GPU (WebGPU)
+                </span>
+              </div>
+            </div>
+
+            <label className="check" style={{ fontSize: "0.72rem", display: "flex", alignItems: "center", gap: 6, cursor: "pointer", marginTop: 2, marginBottom: 0 }}>
+              <input
+                type="checkbox"
+                checked={a.bgRemovalWorker}
+                onChange={(e) => p.onUpdateBgRemoval({ bgRemovalWorker: e.target.checked })}
+              />
+              Run in background (Web Worker)
+            </label>
+          </div>
+
+          {/* Brushing & Fine Tuning Tools */}
+          <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+            {/* Tool Selection */}
+            <div className="field" style={{ marginBottom: 4 }}>
+              <label className="field-label">Active Tool</label>
+              <div className="segmented" style={{ background: "var(--active-bg)", borderRadius: 6, padding: 2 }}>
+                <span
+                  className={`segment ${p.tool === "move" ? "active" : ""}`}
+                  style={{ flex: 1, textAlign: "center", fontSize: "0.68rem", cursor: "pointer", padding: "4px 0", borderRadius: 4 }}
+                  onClick={() => p.setTool("move")}
+                >
+                  Move
+                </span>
+                <span
+                  className={`segment ${p.tool === "brush-object" ? "active" : ""}`}
+                  style={{ flex: 1, textAlign: "center", fontSize: "0.68rem", cursor: "pointer", padding: "4px 0", borderRadius: 4 }}
+                  onClick={() => p.setTool("brush-object")}
+                >
+                  Select Obj
+                </span>
+                <span
+                  className={`segment ${p.tool === "brush-include" ? "active" : ""} ${!a.bgRemoved ? "disabled" : ""}`}
+                  style={{ flex: 1, textAlign: "center", fontSize: "0.68rem", cursor: a.bgRemoved ? "pointer" : "default", padding: "4px 0", borderRadius: 4, opacity: a.bgRemoved ? 1 : 0.4, pointerEvents: a.bgRemoved ? "auto" : "none" }}
+                  onClick={() => a.bgRemoved && p.setTool("brush-include")}
+                >
+                  Restore
+                </span>
+                <span
+                  className={`segment ${p.tool === "brush-remove" ? "active" : ""} ${!a.bgRemoved ? "disabled" : ""}`}
+                  style={{ flex: 1, textAlign: "center", fontSize: "0.68rem", cursor: a.bgRemoved ? "pointer" : "default", padding: "4px 0", borderRadius: 4, opacity: a.bgRemoved ? 1 : 0.4, pointerEvents: a.bgRemoved ? "auto" : "none" }}
+                  onClick={() => a.bgRemoved && p.setTool("brush-remove")}
+                >
+                  Erase
+                </span>
+              </div>
+            </div>
+
+            {/* Object Selection Mode (Only when Select Obj tool is active) */}
+            {p.tool === "brush-object" && (
+              <div className="field" style={{ marginBottom: 4 }}>
+                <label className="field-label">Object Selection Mode</label>
+                <select
+                  className="select"
+                  value={a.objectSelectionMode || "keep"}
+                  onChange={(e) => p.onUpdateBgRemoval({ objectSelectionMode: e.target.value as any })}
+                >
+                  <option value="keep">Keep Selected Object</option>
+                  <option value="remove">Remove Selected Object</option>
+                </select>
+              </div>
+            )}
+
+            {/* Brush Size Slider (Only when a brush is active) */}
+            {["brush-include", "brush-remove", "brush-object"].includes(p.tool) && (
+              <Slider
+                label="Brush Diameter"
+                value={p.brushSize}
+                min={5}
+                max={100}
+                step={1}
+                onChange={p.setBrushSize}
+              />
+            )}
+
+            {/* Removal Strength Slider */}
+            {a.bgRemoved && (
+              <Slider
+                label="Removal Strength"
+                value={a.bgRemovalStrength}
+                min={0}
+                max={100}
+                step={1}
+                onChange={(v) => p.onUpdateBgRemoval({ bgRemovalStrength: v })}
+              />
+            )}
+
+            {/* Clear Brush Edits */}
+            {(a.paintMaskSrc || a.objectMaskSrc) && (
+              <button
+                className="btn btn-danger btn-block"
+                onClick={p.onClearBrushEdits}
+                style={{ fontSize: "0.7rem", padding: "6px 0", marginTop: 4 }}
+              >
+                Clear Brush Edits
+              </button>
+            )}
+
+            {/* Compare Tools */}
+            {a.bgRemoved && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 6, borderTop: "1px solid var(--border-main)", paddingTop: 10 }}>
+                <button
+                  className="btn btn-secondary btn-block"
+                  style={{ userSelect: "none" }}
+                  onMouseDown={() => p.setIsComparing(true)}
+                  onMouseUp={() => p.setIsComparing(false)}
+                  onMouseLeave={() => p.setIsComparing(false)}
+                  onTouchStart={() => p.setIsComparing(true)}
+                  onTouchEnd={() => p.setIsComparing(false)}
+                >
+                  Hold to Compare Before/After
+                </button>
+                <label className="check" style={{ fontSize: "0.72rem", display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={p.showComparisonSlider}
+                    onChange={(e) => p.setShowComparisonSlider(e.target.checked)}
+                  />
+                  Comparison split slider
+                </label>
+              </div>
+            )}
+          </div>
+
+          <p className="hint" style={{ marginTop: 12 }}>
+            Local AI matting (ISNet). Brush before to select an object, or after to restore/erase edges.
           </p>
         </section>
 
@@ -229,93 +433,114 @@ export default function RightPanel(p: Props) {
 
         {/* 4. Vectorize */}
         <section className="section">
-          <div className="section-head">
+          <div
+            className="section-head"
+            style={{ cursor: "pointer", userSelect: "none" }}
+            onClick={() => {
+              const next = !isTracingExpanded;
+              setIsTracingExpanded(next);
+              p.setLivePreview(next);
+            }}
+          >
             <Wand2 size={16} />
             <span className="section-title">Image Tracing</span>
-            <span className="section-num">4</span>
+            <span className="section-num" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              4 {isTracingExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </span>
           </div>
-          <p className="section-desc">
-            Auto-vectorize to crisp vector paths. Previews are drawn in cyan.
-          </p>
 
-          <label className="check">
-            <input
-              type="checkbox"
-              checked={a.trace.silhouette}
-              onChange={(e) => p.onUpdateTrace({ silhouette: e.target.checked })}
-            />
-            Silhouette tracing (backgroundless)
-          </label>
-          <label className="check">
-            <input
-              type="checkbox"
-              checked={a.trace.removeBackgroundFirst}
-              onChange={(e) => p.onUpdateTrace({ removeBackgroundFirst: e.target.checked })}
-            />
-            Remove background before tracing
-          </label>
-          <label className="check" style={{ marginBottom: 6 }}>
-            <input
-              type="checkbox"
-              checked={p.livePreview}
-              onChange={(e) => p.setLivePreview(e.target.checked)}
-            />
-            Live cyan preview
-          </label>
+          {isTracingExpanded && (
+            <div className="section-content" style={{ marginTop: 12 }}>
+              <p className="section-desc">
+                Auto-vectorize to crisp vector paths. Previews are drawn in cyan.
+              </p>
 
-          <div style={{ height: 1, background: "var(--border-main)", margin: "8px 0 14px" }} />
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={a.trace.silhouette}
+                  onChange={(e) => p.onUpdateTrace({ silhouette: e.target.checked })}
+                />
+                Silhouette tracing (backgroundless)
+              </label>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={a.trace.removeBackgroundFirst}
+                  onChange={(e) => p.onUpdateTrace({ removeBackgroundFirst: e.target.checked })}
+                />
+                Remove background before tracing
+              </label>
+              <label className="check" style={{ marginBottom: 6 }}>
+                <input
+                  type="checkbox"
+                  checked={a.trace.colorGrouping}
+                  onChange={(e) => p.onUpdateTrace({ colorGrouping: e.target.checked })}
+                />
+                Color grouping (multi-color)
+              </label>
 
-          {!a.trace.silhouette && (
-            <Slider
-              label="Threshold" value={a.trace.threshold} min={0} max={255}
-              onChange={(v) => p.onUpdateTrace({ threshold: v })}
-            />
-          )}
-          <Slider
-            label="Tolerance / Detail" value={a.trace.tolerance} min={1} max={100}
-            onChange={(v) => p.onUpdateTrace({ tolerance: v })}
-          />
-          <Slider
-            label="Corner Smoothness" value={a.trace.cornerSmoothness} min={0} max={100}
-            onChange={(v) => p.onUpdateTrace({ cornerSmoothness: v })}
-          />
-          <Slider
-            label="Path Optimization" value={a.trace.pathOptimization} min={0} max={100}
-            onChange={(v) => p.onUpdateTrace({ pathOptimization: v })}
-          />
+              <div style={{ height: 1, background: "var(--border-main)", margin: "8px 0 14px" }} />
 
-          <button
-            className="btn btn-ok btn-block"
-            onClick={p.onGenerateVectors}
-            disabled={p.vecBusy}
-            style={{ marginTop: 4 }}
-          >
-            {p.vecBusy ? <Loader2 size={15} className="spin" /> : <Sparkles size={15} />}
-            Generate Vectors
-          </button>
+              {!a.trace.silhouette && !a.trace.colorGrouping && (
+                <Slider
+                  label="Threshold" value={a.trace.threshold} min={0} max={255}
+                  onChange={(v) => p.onUpdateTrace({ threshold: v })}
+                />
+              )}
+              {a.trace.colorGrouping && (
+                <Slider
+                  label="Color Groups" value={a.trace.colorGroups} min={2} max={16} step={1}
+                  onChange={(v) => p.onUpdateTrace({ colorGroups: v })}
+                />
+              )}
+              <Slider
+                label="Tolerance / Detail" value={a.trace.tolerance} min={1} max={100}
+                onChange={(v) => p.onUpdateTrace({ tolerance: v })}
+              />
+              <Slider
+                label="Corner Smoothness" value={a.trace.cornerSmoothness} min={0} max={100}
+                onChange={(v) => p.onUpdateTrace({ cornerSmoothness: v })}
+              />
+              <Slider
+                label="Path Optimization" value={a.trace.pathOptimization} min={0} max={100}
+                onChange={(v) => p.onUpdateTrace({ pathOptimization: v })}
+              />
 
-          {vectorReady && (
-            <>
-              <div className="segmented" style={{ marginTop: 12 }}>
-                <span
-                  className={`segment ${a.view === "image" ? "active" : ""}`}
-                  style={{ flex: 1, textAlign: "center" }}
-                  onClick={() => p.onUpdate({ view: "image" })}
-                >
-                  Image
-                </span>
-                <span
-                  className={`segment ${a.view === "vector" ? "active" : ""}`}
-                  style={{ flex: 1, textAlign: "center" }}
-                  onClick={() => p.onUpdate({ view: "vector" })}
-                >
-                  Vector
-                </span>
-              </div>
-              <button className="btn btn-danger btn-block" style={{ marginTop: 8 }} onClick={p.onClearVector}>
-                Clear vector
+              <button
+                className="btn btn-ok btn-block"
+                onClick={p.onGenerateVectors}
+                disabled={p.vecBusy}
+                style={{ marginTop: 4 }}
+              >
+                {p.vecBusy ? <Loader2 size={15} className="spin" /> : <Sparkles size={15} />}
+                Generate Vectors
               </button>
-            </>
+
+              {vectorReady && (
+                <>
+                  <div className="segmented" style={{ marginTop: 12 }}>
+                    <span
+                      className={`segment ${a.view === "image" ? "active" : ""}`}
+                      style={{ flex: 1, textAlign: "center" }}
+                      onClick={() => p.onUpdate({ view: "image" })}
+                    >
+                      Image
+                    </span>
+                    <span
+                      className={`segment ${a.view === "vector" ? "active" : ""}`}
+                      style={{ flex: 1, textAlign: "center" }}
+                      onClick={() => p.onUpdate({ view: "vector" })}
+                    >
+                      Vector
+                    </span>
+                  </div>
+                  <button className="btn btn-danger btn-block" style={{ marginTop: 8 }} onClick={p.onClearVector}>
+                    Clear vector
+                  </button>
+                </>
+              )}
+            </div>
           )}
         </section>
 
@@ -357,6 +582,27 @@ export default function RightPanel(p: Props) {
             </div>
           </div>
         </section>
+
+        <footer className="save-warning-footer" style={{ marginTop: "auto" }}>
+          <AlertCircle size={14} style={{ color: "var(--text-muted)", flexShrink: 0, marginTop: "2px" }} />
+          <div className="save-warning-text">
+            Contour runs entirely in your browser. Work is not saved to a server. Leaving or refreshing this page will discard your layout.
+          </div>
+        </footer>
+
+        <footer className="about-footer">
+          <div className="about-author">Made with ❤️ by Mason Chen</div>
+          <div className="about-links">
+            <a href="https://github.com/Mason363" target="_blank" rel="noopener noreferrer" className="about-link">
+              <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: "middle" }}><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path></svg>
+              <span>GitHub</span>
+            </a>
+            <a href="https://buymeacoffee.com/masonchen" target="_blank" rel="noopener noreferrer" className="about-link">
+              <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: "middle" }}><path d="M18 8h1a4 4 0 0 1 0 8h-1"></path><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"></path><line x1="6" y1="1" x2="6" y2="4"></line><line x1="10" y1="1" x2="10" y2="4"></line><line x1="14" y1="1" x2="14" y2="4"></line></svg>
+              <span>Buy Me a Coffee</span>
+            </a>
+          </div>
+        </footer>
       </div>
     </aside>
   );

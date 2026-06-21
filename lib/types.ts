@@ -13,6 +13,10 @@ export interface TraceSettings {
   cornerSmoothness: number;
   /** Path optimization 0..100 — higher simplifies curves (maps to opttolerance). */
   pathOptimization: number;
+  /** Group similar colors together. */
+  colorGrouping: boolean;
+  /** Number of color groups (2 to 16). */
+  colorGroups: number;
 }
 
 export interface BackgroundLayer {
@@ -65,6 +69,36 @@ export interface Artboard {
 
   /** Current display layer. */
   view: ViewMode;
+
+  /** Whether the artboard rendering is visible on the canvas. */
+  visible: boolean;
+
+  /** Parent artboard ID if this is a trace. */
+  parentId?: string;
+
+  /** The raw AI background removal confidence mask (alpha) as a PNG data URL. */
+  baseMaskSrc: string | null;
+
+  /** Grayscale/RGB edits from user painting (green = include, red = remove) as a PNG data URL. */
+  paintMaskSrc: string | null;
+
+  /** Object selection mask (blue) as a PNG data URL. */
+  objectMaskSrc: string | null;
+
+  /** Confidence threshold for background removal, 0 to 100. */
+  bgRemovalStrength: number;
+
+  /** Object selection action mode. */
+  objectSelectionMode: "keep" | "remove" | null;
+
+  /** Background removal model size/version. */
+  bgRemovalModel: "isnet" | "isnet_fp16" | "isnet_quint8";
+
+  /** Background removal execution hardware. */
+  bgRemovalDevice: "cpu" | "gpu";
+
+  /** Whether background removal runs in a Web Worker thread. */
+  bgRemovalWorker: boolean;
 }
 
 export const defaultTrace = (): TraceSettings => ({
@@ -74,6 +108,8 @@ export const defaultTrace = (): TraceSettings => ({
   tolerance: 50,
   cornerSmoothness: 50,
   pathOptimization: 50,
+  colorGrouping: false,
+  colorGroups: 8,
 });
 
 /** The image source actually displayed/processed (bg-removed if available). */
