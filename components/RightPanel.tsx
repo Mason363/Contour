@@ -298,7 +298,7 @@ export default function RightPanel(p: Props) {
             {/* Removal Strength Slider */}
             {a.bgRemoved && (
               <Slider
-                label="Removal Strength"
+                label="Sensitivity"
                 value={a.bgRemovalStrength}
                 min={0}
                 max={100}
