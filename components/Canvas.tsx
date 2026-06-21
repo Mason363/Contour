@@ -580,6 +580,24 @@ export default function Canvas({
               ) : (
                 /* B. Normal rendering layers (no split slider active) */
                 <>
+                  {/* Blurred original backdrop (Background Effects: blur) */}
+                  {artboard.blurBackground && artboard.processedSrc && !showVector && artboard.visible && (
+                    <img
+                      src={artboard.originalSrc}
+                      alt="blur-backdrop"
+                      draggable={false}
+                      style={{
+                        position: "absolute",
+                        left: cropMode ? 0 : -artboard.crop.x,
+                        top: cropMode ? 0 : -artboard.crop.y,
+                        width: artboard.width,
+                        height: artboard.height,
+                        filter: `blur(${(artboard.blurAmount / 100) * Math.max(artboard.width, artboard.height) * 0.05}px)`,
+                        zIndex: 1,
+                      }}
+                    />
+                  )}
+
                   {/* Imported background, clipped to the artboard region */}
                   {artboard.background && !showVector && artboard.visible && (
                     <div className="artboard-layer" style={{ overflow: "hidden" }}>
@@ -637,6 +655,10 @@ export default function Canvas({
                           zIndex: 2,
                           // Fade the cut-out while moving/resizing the background.
                           opacity: tool === "background" ? 0.35 : 1,
+                          // Drop shadow (Background Effects: shadow).
+                          filter: artboard.shadow && artboard.processedSrc
+                            ? `drop-shadow(0 ${Math.max(artboard.width, artboard.height) * 0.015}px ${Math.max(artboard.width, artboard.height) * 0.03}px rgba(0,0,0,${Math.max(0, Math.min(1, artboard.shadowOpacity / 100))}))`
+                            : undefined,
                         }}
                       />
                     )

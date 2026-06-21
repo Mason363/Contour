@@ -175,22 +175,30 @@ export const autoContentBounds = (img: HTMLImageElement): CropRect | null => {
 
 /**
  * Render an artboard's raster output into a fresh canvas at native crop
- * resolution. Layers, bottom-to-top: imported background (clipped), then the
- * (possibly bg-removed) image. Optionally flattens onto an opaque white sheet.
+ * resolution. Layers, bottom-to-top: imported background (clipped), an optional
+ * blurred-original backdrop, then the (possibly bg-removed) image with an optional
+ * drop shadow. Optionally flattens onto an opaque white sheet, and optionally
+ * downscales the result to a maximum dimension (export size).
  */
 export const renderArtboardCanvas = async (
   a: Artboard,
-  opts: { flattenWhite?: boolean } = {},
+  opts: { flattenWhite?: boolean; maxDim?: number } = {},
 ): Promise<HTMLCanvasElement> => {
+  const cropW = Math.max(1, Math.round(a.crop.w));
+  const cropH = Math.max(1, Math.round(a.crop.h));
+  const maxSide = Math.max(cropW, cropH);
+
   const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, Math.round(a.crop.w));
-  canvas.height = Math.max(1, Math.round(a.crop.h));
+  canvas.width = cropW;
+  canvas.height = cropH;
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Canvas 2D unavailable");
 
-  if (opts.flattenWhite && !a.background) {
+  const blurActive = a.blurBackground && !!a.processedSrc;
+
+  if (opts.flattenWhite && !a.background && !blurActive) {
     ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillRect(0, 0, cropW, cropH);
   }
 
   // Imported background, framed within the crop region.
@@ -198,7 +206,7 @@ export const renderArtboardCanvas = async (
     const bgImg = await loadImage(a.background.src);
     ctx.save();
     ctx.beginPath();
-    ctx.rect(0, 0, canvas.width, canvas.height);
+    ctx.rect(0, 0, cropW, cropH);
     ctx.clip();
     ctx.drawImage(
       bgImg,
@@ -210,9 +218,42 @@ export const renderArtboardCanvas = async (
     ctx.restore();
   }
 
-  // The image itself, translated so the crop origin sits at (0,0).
+  // Blurred original backdrop (brings the photo's own background back, blurred).
+  if (blurActive) {
+    const orig = await loadImage(a.originalSrc);
+    const blurPx = (a.blurAmount / 100) * maxSide * 0.05;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, cropW, cropH);
+    ctx.clip();
+    ctx.filter = `blur(${blurPx}px)`;
+    ctx.drawImage(orig, -a.crop.x, -a.crop.y);
+    ctx.restore();
+  }
+
+  // The cut-out itself, translated so the crop origin sits at (0,0), with an
+  // optional drop shadow.
   const img = await loadImage(activeSrc(a));
+  ctx.save();
+  if (a.shadow && a.processedSrc) {
+    ctx.shadowColor = `rgba(0,0,0,${Math.max(0, Math.min(1, a.shadowOpacity / 100))})`;
+    ctx.shadowBlur = maxSide * 0.03;
+    ctx.shadowOffsetY = maxSide * 0.015;
+  }
   ctx.drawImage(img, -a.crop.x, -a.crop.y);
+  ctx.restore();
+
+  // Optional downscale to an export-size cap.
+  if (opts.maxDim && maxSide > opts.maxDim) {
+    const s = opts.maxDim / maxSide;
+    const out = document.createElement("canvas");
+    out.width = Math.max(1, Math.round(cropW * s));
+    out.height = Math.max(1, Math.round(cropH * s));
+    const octx = out.getContext("2d")!;
+    octx.imageSmoothingQuality = "high";
+    octx.drawImage(canvas, 0, 0, out.width, out.height);
+    return out;
+  }
 
   return canvas;
 };

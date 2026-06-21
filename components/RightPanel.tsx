@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import {
   Scissors, Wand2, Eraser, ImageDown, Crop, Sparkles, Loader2,
   RotateCcw, Image as ImageIcon, Copy, Package, Download,
-  AlertCircle, ChevronDown, ChevronUp, Plus, Minus
+  AlertCircle, ChevronDown, ChevronUp, Plus, Minus, Layers
 } from "lucide-react";
 import type { Artboard, TraceSettings, CropRect } from "@/lib/types";
 import type { Tool } from "./Canvas";
@@ -448,7 +448,53 @@ export default function RightPanel(p: Props) {
           </>)}
         </section>
 
-        {/* 4. Vectorize */}
+        {/* 4. Background effects */}
+        <section className="section">
+          <div className="section-head">
+            <Layers size={16} />
+            <span className="section-title">Background Effects</span>
+            <span className="section-num">4</span>
+          </div>
+          {!a.bgRemoved && (
+            <p className="section-desc">Remove the background first to enable effects.</p>
+          )}
+          <div style={{ opacity: a.bgRemoved ? 1 : 0.5, pointerEvents: a.bgRemoved ? "auto" : "none" }}>
+            <label className="check" style={{ marginBottom: a.blurBackground ? 2 : 6 }}>
+              <input
+                type="checkbox"
+                checked={a.blurBackground}
+                onChange={(e) => p.onUpdate({ blurBackground: e.target.checked })}
+              />
+              Blur background
+            </label>
+            {a.blurBackground && (
+              <Slider
+                label="Blur amount"
+                value={a.blurAmount}
+                min={0} max={100} step={1}
+                onChange={(v) => p.onUpdate({ blurAmount: v })}
+              />
+            )}
+            <label className="check" style={{ marginBottom: a.shadow ? 2 : 0 }}>
+              <input
+                type="checkbox"
+                checked={a.shadow}
+                onChange={(e) => p.onUpdate({ shadow: e.target.checked })}
+              />
+              Drop shadow
+            </label>
+            {a.shadow && (
+              <Slider
+                label="Shadow opacity"
+                value={a.shadowOpacity}
+                min={0} max={100} step={1}
+                onChange={(v) => p.onUpdate({ shadowOpacity: v })}
+              />
+            )}
+          </div>
+        </section>
+
+        {/* 5. Vectorize */}
         <section className="section">
           <div
             className="section-head"
@@ -462,7 +508,7 @@ export default function RightPanel(p: Props) {
             <Wand2 size={16} />
             <span className="section-title">Image Tracing</span>
             <span className="section-num" style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              4 {isTracingExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              5 {isTracingExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
             </span>
           </div>
 
@@ -566,7 +612,7 @@ export default function RightPanel(p: Props) {
           <div className="section-head">
             <Download size={16} />
             <span className="section-title">Export</span>
-            <span className="section-num">5</span>
+            <span className="section-num">6</span>
           </div>
           <div className="field">
             <label className="field-label">Format</label>
