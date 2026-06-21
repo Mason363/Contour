@@ -6,6 +6,7 @@ import Header from "@/components/Header";
 import ArtboardRail from "@/components/ArtboardRail";
 import Canvas, { type Tool } from "@/components/Canvas";
 import RightPanel from "@/components/RightPanel";
+import WelcomeModal from "@/components/WelcomeModal";
 import type { Artboard, TraceSettings, CropRect, BackgroundLayer } from "@/lib/types";
 import { defaultTrace, activeSrc } from "@/lib/types";
 import {
@@ -22,6 +23,7 @@ const uid = () => Math.random().toString(36).slice(2, 9);
 export default function ContourApp() {
   const [theme, setTheme] = useState<"light" | "dark">("dark");
   const [mounted, setMounted] = useState(false);
+  const [showWelcome, setShowWelcome] = useState(false);
 
   const [artboards, setArtboards] = useState<Artboard[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -62,7 +64,13 @@ export default function ContourApp() {
     const t = saved ?? "dark";
     setTheme(t);
     document.documentElement.setAttribute("data-theme", t);
+    if (localStorage.getItem("contour-welcome-dismissed") !== "1") setShowWelcome(true);
   }, []);
+
+  const closeWelcome = (dontShowAgain: boolean) => {
+    if (dontShowAgain) localStorage.setItem("contour-welcome-dismissed", "1");
+    setShowWelcome(false);
+  };
 
   const toggleTheme = () => {
     const next = theme === "light" ? "dark" : "light";
@@ -647,6 +655,8 @@ export default function ContourApp() {
       </div>
 
       {toast && <div className="toast">{toast}</div>}
+
+      {showWelcome && <WelcomeModal theme={theme} onClose={closeWelcome} />}
     </div>
   );
 }
