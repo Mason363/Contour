@@ -274,7 +274,7 @@ export default function ContourApp() {
   const onUpdateBgRemoval = async (patch: {
     bgRemovalStrength?: number;
     paintMaskSrc?: string | null;
-    bgRemovalModel?: "isnet" | "isnet_fp16" | "isnet_quint8";
+    bgRemovalModel?: "isnet" | "isnet_fp16" | "isnet_quint8" | "birefnet";
     bgRemovalDevice?: "cpu" | "gpu";
     bgRemovalWorker?: boolean;
   }) => {

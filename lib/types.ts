@@ -86,7 +86,7 @@ export interface Artboard {
   bgRemovalStrength: number;
 
   /** Background removal model size/version. */
-  bgRemovalModel: "isnet" | "isnet_fp16" | "isnet_quint8";
+  bgRemovalModel: "isnet" | "isnet_fp16" | "isnet_quint8" | "birefnet";
 
   /** Background removal execution hardware. */
   bgRemovalDevice: "cpu" | "gpu";

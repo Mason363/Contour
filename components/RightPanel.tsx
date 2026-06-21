@@ -62,7 +62,7 @@ interface Props {
   onUpdateBgRemoval: (patch: {
     bgRemovalStrength?: number;
     paintMaskSrc?: string | null;
-    bgRemovalModel?: "isnet" | "isnet_fp16" | "isnet_quint8";
+    bgRemovalModel?: "isnet" | "isnet_fp16" | "isnet_quint8" | "birefnet";
     bgRemovalDevice?: "cpu" | "gpu";
     bgRemovalWorker?: boolean;
   }) => void;
@@ -323,10 +323,15 @@ export default function RightPanel(p: Props) {
                     value={a.bgRemovalModel || "isnet"}
                     onChange={(e) => p.onUpdateBgRemoval({ bgRemovalModel: e.target.value as any })}
                   >
+                    <option value="birefnet">Best — BiRefNet (large download, slow)</option>
                     <option value="isnet">High Quality (44MB)</option>
                     <option value="isnet_fp16">Balanced (22MB)</option>
                     <option value="isnet_quint8">Fast (11MB)</option>
                   </select>
+                  <p className="hint" style={{ margin: "6px 0 0" }}>
+                    Best uses BiRefNet for top-quality edges — a large one-time download,
+                    much slower, still 100% local. Use GPU (WebGPU) below for speed.
+                  </p>
                 </div>
                 <div className="field" style={{ marginBottom: 0 }}>
                   <label className="field-label">Device</label>

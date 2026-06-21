@@ -10,6 +10,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
     "@imgly/background-removal": "^1.7.0",
     "heic2any": "^0.0.4",
     "imagetracerjs": "^1.2.6",

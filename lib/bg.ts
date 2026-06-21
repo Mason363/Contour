@@ -7,7 +7,7 @@ import { dataUrlToBlob, blobToDataUrl } from "./image";
 export type ProgressCb = (pct: number) => void;
 
 export interface BgRemovalOptions {
-  model?: "isnet" | "isnet_fp16" | "isnet_quint8";
+  model?: "isnet" | "isnet_fp16" | "isnet_quint8" | "birefnet";
   device?: "cpu" | "gpu";
   proxyToWorker?: boolean;
 }
@@ -17,6 +17,12 @@ export const removeImageBackground = async (
   onProgress?: ProgressCb,
   options?: BgRemovalOptions,
 ): Promise<string> => {
+  // BiRefNet (best quality) runs through a separate transformers.js path.
+  if (options?.model === "birefnet") {
+    const { removeBackgroundBiRefNet } = await import("./bg-hq");
+    return removeBackgroundBiRefNet(src, onProgress, options.device);
+  }
+
   const { removeBackground } = await import("@imgly/background-removal");
 
   const modelType = options?.model || "isnet";
