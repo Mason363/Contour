@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Plus, Minus, Maximize2, Upload, Scissors } from "lucide-react";
+import { Plus, Minus, Maximize2, Upload, Scissors, Copy } from "lucide-react";
 import type { Artboard, CropRect, BackgroundLayer } from "@/lib/types";
 import { activeSrc } from "@/lib/types";
 
@@ -71,6 +71,19 @@ export default function Canvas({
   const isDrawing = useRef(false);
   const lastPos = useRef({ x: 0, y: 0 });
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
+
+  // Right-click context menu (copy full-resolution image)
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    window.addEventListener("mousedown", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [menu]);
 
   const cropMode = tool === "crop" && !!artboard;
   // In crop mode the full image is shown; otherwise the cropped region.
@@ -439,6 +452,11 @@ export default function Canvas({
         className="stage-scroll"
         ref={scrollRef}
         onMouseDown={startPan}
+        onContextMenu={(e) => {
+          if (!onCopyImage) return;
+          e.preventDefault();
+          setMenu({ x: e.clientX, y: e.clientY });
+        }}
         style={{ cursor: spacePressed || tool === "move" ? "grab" : "default" }}
       >
         <div className="stage-inner">
@@ -812,6 +830,21 @@ export default function Canvas({
           <span style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 8px", fontSize: "0.74rem", color: "var(--text-secondary)" }}>
             <Scissors size={13} /> Drag the handles to set the crop bounds
           </span>
+        </div>
+      )}
+
+      {menu && onCopyImage && (
+        <div
+          className="ctx-menu"
+          style={{ left: menu.x, top: menu.y }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <button
+            className="ctx-item"
+            onMouseDown={(e) => { e.stopPropagation(); onCopyImage(); setMenu(null); }}
+          >
+            <Copy size={13} /> Copy image
+          </button>
         </div>
       )}
     </div>

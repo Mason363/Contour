@@ -331,6 +331,19 @@ input, select { font-family: inherit; }
 
 .badge-pill { font-size: 0.62rem; font-weight: 700; padding: 2px 7px; border-radius: 100px; background: var(--active-bg); color: var(--text-secondary); }
 
+/* Canvas right-click context menu */
+.ctx-menu {
+  position: fixed; z-index: 400; min-width: 150px; padding: 4px;
+  background: var(--bg-panel); border: 1px solid var(--border-main);
+  border-radius: 8px; box-shadow: var(--shadow-md);
+}
+.ctx-item {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 7px 10px; border-radius: 5px; font-size: 0.8rem; color: var(--text-main);
+  text-align: left;
+}
+.ctx-item:hover { background: var(--hover-bg); }
+
 /* Warning Footer */
 .save-warning-footer {
   margin-top: auto;

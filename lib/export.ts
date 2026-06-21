@@ -98,15 +98,28 @@ const exportPdf = async (
 
 const baseName = (a: Artboard) => a.name.replace(/\.[^.]+$/, "") || "contour";
 
+/** Maps an export-size choice to a maximum output dimension (undefined = original). */
+export const EXPORT_SIZES: { id: string; label: string; maxDim?: number }[] = [
+  { id: "original", label: "Original" },
+  { id: "large", label: "Large (2048px)", maxDim: 2048 },
+  { id: "medium", label: "Medium (1024px)", maxDim: 1024 },
+  { id: "small", label: "Small (512px)", maxDim: 512 },
+];
+
+const maxDimForSize = (sizeId?: string) =>
+  EXPORT_SIZES.find((s) => s.id === sizeId)?.maxDim;
+
 /** Produce a downloadable Blob + filename for one artboard in the given format. */
 export const exportArtboard = async (
   a: Artboard,
   formatId: string,
+  sizeId?: string,
 ): Promise<{ blob: Blob; filename: string }> => {
   const fmt = formatById(formatId);
   const name = baseName(a);
 
   if (fmt.kind === "vector") {
+    // SVG is resolution-independent; export size does not apply.
     const svg = a.vectorSvg ?? (await buildVectorSvg(a));
     return {
       blob: new Blob([svg], { type: "image/svg+xml" }),
@@ -115,7 +128,10 @@ export const exportArtboard = async (
   }
 
   // Raster + doc formats need a flat canvas. Opaque formats flatten onto white.
-  const canvas = await renderArtboardCanvas(a, { flattenWhite: !fmt.alpha });
+  const canvas = await renderArtboardCanvas(a, {
+    flattenWhite: !fmt.alpha,
+    maxDim: maxDimForSize(sizeId),
+  });
 
   if (fmt.kind === "doc") return exportPdf(canvas, name);
 
@@ -157,12 +173,12 @@ export const downloadBlob = (blob: Blob, filename: string) => {
 };
 
 /** Export every artboard into a single zip. */
-export const exportAllZip = async (artboards: Artboard[], formatId: string) => {
+export const exportAllZip = async (artboards: Artboard[], formatId: string, sizeId?: string) => {
   const JSZip = (await import("jszip")).default;
   const zip = new JSZip();
   const used: Record<string, number> = {};
   for (const a of artboards) {
-    const { blob, filename } = await exportArtboard(a, formatId);
+    const { blob, filename } = await exportArtboard(a, formatId, sizeId);
     let fn = filename;
     if (used[fn] !== undefined) {
       used[fn] += 1;

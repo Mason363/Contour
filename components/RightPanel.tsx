@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import type { Artboard, TraceSettings, CropRect } from "@/lib/types";
 import type { Tool } from "./Canvas";
-import { EXPORT_FORMATS } from "@/lib/export";
+import { EXPORT_FORMATS, EXPORT_SIZES } from "@/lib/export";
 
 interface Props {
   artboard: Artboard | null;
@@ -26,6 +26,8 @@ interface Props {
 
   exportFormat: string;
   setExportFormat: (f: string) => void;
+  exportSize: string;
+  setExportSize: (s: string) => void;
 
   onUpdate: (patch: Partial<Artboard>) => void;
   onUpdateTrace: (patch: Partial<TraceSettings>) => void;
@@ -614,17 +616,31 @@ export default function RightPanel(p: Props) {
             <span className="section-title">Export</span>
             <span className="section-num">6</span>
           </div>
-          <div className="field">
-            <label className="field-label">Format</label>
-            <select
-              className="select"
-              value={p.exportFormat}
-              onChange={(e) => p.setExportFormat(e.target.value)}
-            >
-              {EXPORT_FORMATS.map((f) => (
-                <option key={f.id} value={f.id}>{f.label}</option>
-              ))}
-            </select>
+          <div className="row2">
+            <div className="field">
+              <label className="field-label">Format</label>
+              <select
+                className="select"
+                value={p.exportFormat}
+                onChange={(e) => p.setExportFormat(e.target.value)}
+              >
+                {EXPORT_FORMATS.map((f) => (
+                  <option key={f.id} value={f.id}>{f.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label className="field-label">Size</label>
+              <select
+                className="select"
+                value={p.exportSize}
+                onChange={(e) => p.setExportSize(e.target.value)}
+              >
+                {EXPORT_SIZES.map((s) => (
+                  <option key={s.id} value={s.id}>{s.label}</option>
+                ))}
+              </select>
+            </div>
           </div>
           <p className="hint">
             Opaque formats (JPEG, BMP, PDF) fill transparent areas with white

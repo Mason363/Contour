@@ -40,6 +40,7 @@ export default function ContourApp() {
   const [exportBusy, setExportBusy] = useState(false);
 
   const [exportFormat, setExportFormat] = useState("png");
+  const [exportSize, setExportSize] = useState("original");
   const [toast, setToast] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
 
@@ -524,7 +525,7 @@ export default function ContourApp() {
     if (!active) return;
     setExportBusy(true);
     try {
-      const { blob, filename } = await exportArtboard(active, exportFormat);
+      const { blob, filename } = await exportArtboard(active, exportFormat, exportSize);
       downloadBlob(blob, filename);
     } catch (err) {
       console.error(err);
@@ -541,7 +542,7 @@ export default function ContourApp() {
   const onExportAll = async () => {
     if (!artboards.length) return;
     setExportBusy(true);
-    try { await exportAllZip(artboards, exportFormat); }
+    try { await exportAllZip(artboards, exportFormat, exportSize); }
     catch (err) { console.error(err); showToast("Export all failed"); }
     finally { setExportBusy(false); }
   };
@@ -592,6 +593,8 @@ export default function ContourApp() {
           exportBusy={exportBusy}
           exportFormat={exportFormat}
           setExportFormat={setExportFormat}
+          exportSize={exportSize}
+          setExportSize={setExportSize}
           onUpdate={patchActive}
           onUpdateTrace={patchTrace}
           onUpdateCrop={patchCrop}
