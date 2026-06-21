@@ -85,8 +85,11 @@ export interface Artboard {
   /** Removal sensitivity, 0 to 100 (50 = neutral; lower chokes, higher spreads). */
   bgRemovalStrength: number;
 
+  /** Invert the cut-out: keep the background and drop the subject. */
+  invert: boolean;
+
   /** Background removal model size/version. */
-  bgRemovalModel: "isnet" | "isnet_fp16" | "isnet_quint8" | "birefnet";
+  bgRemovalModel: "isnet" | "isnet_fp16" | "isnet_quint8" | "best";
 
   /** Background removal execution hardware. */
   bgRemovalDevice: "cpu" | "gpu";

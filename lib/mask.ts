@@ -258,7 +258,8 @@ export const applyBgRemovalMasks = async (
   paintMaskSrc: string | null,
   objectMaskSrc: string | null,
   strength: number, // 0..100
-  objectMode: "keep" | "remove" | null
+  objectMode: "keep" | "remove" | null,
+  invert = false,
 ): Promise<string> => {
   void objectMaskSrc;
   void objectMode;
@@ -301,6 +302,9 @@ export const applyBgRemovalMasks = async (
   for (let p = 0; p < N; p++) {
     const i = p * 4;
     let a = alpha[p];
+
+    // Invert keeps the background and drops the subject.
+    if (invert) a = 255 - a;
 
     // User paint override (highest priority): red = remove, green = restore.
     if (paintData) {

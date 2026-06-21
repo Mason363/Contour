@@ -7,7 +7,7 @@ import { dataUrlToBlob, blobToDataUrl } from "./image";
 export type ProgressCb = (pct: number) => void;
 
 export interface BgRemovalOptions {
-  model?: "isnet" | "isnet_fp16" | "isnet_quint8" | "birefnet";
+  model?: "isnet" | "isnet_fp16" | "isnet_quint8" | "best";
   device?: "cpu" | "gpu";
   proxyToWorker?: boolean;
 }
@@ -17,15 +17,22 @@ export const removeImageBackground = async (
   onProgress?: ProgressCb,
   options?: BgRemovalOptions,
 ): Promise<string> => {
-  // BiRefNet (best quality) runs through a separate transformers.js path.
-  if (options?.model === "birefnet") {
-    const { removeBackgroundBiRefNet } = await import("./bg-hq");
-    return removeBackgroundBiRefNet(src, onProgress, options.device);
+  // "Best" runs the higher-quality transformers.js model. If it fails (e.g. the
+  // device runs out of memory), fall back to the fast in-browser ISNet path so the
+  // user always gets a result.
+  if (options?.model === "best") {
+    try {
+      const { removeBackgroundHQ } = await import("./bg-hq");
+      return await removeBackgroundHQ(src, onProgress, options.device);
+    } catch (err) {
+      console.error("Best-quality model failed; falling back to ISNet.", err);
+      onProgress?.(0);
+    }
   }
 
   const { removeBackground } = await import("@imgly/background-removal");
 
-  const modelType = options?.model || "isnet";
+  const modelType = options?.model === "best" ? "isnet" : options?.model || "isnet";
   const deviceType = options?.device || "cpu";
   const proxyWorker = options?.proxyToWorker !== undefined ? options.proxyToWorker : true;
 

@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import {
   Scissors, Wand2, Eraser, ImageDown, Crop, Sparkles, Loader2,
   RotateCcw, Image as ImageIcon, Copy, Package, Download,
-  AlertCircle, ChevronDown, ChevronUp, Plus, Minus, Layers, Check, X
+  AlertCircle, ChevronDown, ChevronUp, Plus, Minus, Layers, Check, X, FlipHorizontal2
 } from "lucide-react";
 import type { Artboard, TraceSettings, CropRect } from "@/lib/types";
 import type { Tool } from "./Canvas";
@@ -62,7 +62,7 @@ interface Props {
   onUpdateBgRemoval: (patch: {
     bgRemovalStrength?: number;
     paintMaskSrc?: string | null;
-    bgRemovalModel?: "isnet" | "isnet_fp16" | "isnet_quint8" | "birefnet";
+    bgRemovalModel?: "isnet" | "isnet_fp16" | "isnet_quint8" | "best";
     bgRemovalDevice?: "cpu" | "gpu";
     bgRemovalWorker?: boolean;
   }) => void;
@@ -72,6 +72,7 @@ interface Props {
   pendingMode: "remove" | "restore" | null;
   onApplyBrush: () => void;
   onCancelBrush: () => void;
+  onToggleInvert: () => void;
 }
 
 function Slider({
@@ -269,6 +270,17 @@ export default function RightPanel(p: Props) {
               />
             )}
 
+            {/* Invert: keep the background, drop the subject */}
+            {a.bgRemoved && (
+              <button
+                className={`btn btn-block ${a.invert ? "btn-primary" : ""}`}
+                onClick={p.onToggleInvert}
+                title="Swap what's kept: background instead of the subject"
+              >
+                <FlipHorizontal2 size={14} /> {a.invert ? "Inverted (keeping background)" : "Invert selection"}
+              </button>
+            )}
+
             {/* Clear brush edits */}
             {a.paintMaskSrc && (
               <button
@@ -323,14 +335,15 @@ export default function RightPanel(p: Props) {
                     value={a.bgRemovalModel || "isnet"}
                     onChange={(e) => p.onUpdateBgRemoval({ bgRemovalModel: e.target.value as any })}
                   >
-                    <option value="birefnet">Best — BiRefNet (large download, slow)</option>
+                    <option value="best">Best quality (slower, larger download)</option>
                     <option value="isnet">High Quality (44MB)</option>
                     <option value="isnet_fp16">Balanced (22MB)</option>
                     <option value="isnet_quint8">Fast (11MB)</option>
                   </select>
                   <p className="hint" style={{ margin: "6px 0 0" }}>
-                    Best uses BiRefNet for top-quality edges — a large one-time download,
-                    much slower, still 100% local. Use GPU (WebGPU) below for speed.
+                    Best uses a higher-quality matting model for cleaner edges — a larger
+                    one-time download and slower, still 100% local. Turn on GPU (WebGPU)
+                    below for speed; it falls back to the fast model if unsupported.
                   </p>
                 </div>
                 <div className="field" style={{ marginBottom: 0 }}>
@@ -464,7 +477,7 @@ export default function RightPanel(p: Props) {
                   className={`btn ${p.tool === "background" ? "btn-primary" : ""}`}
                   onClick={() => p.setTool(p.tool === "background" ? "move" : "background")}
                 >
-                  Move background
+                  {p.tool === "background" ? "Confirm" : "Move background"}
                 </button>
                 <button className="btn btn-danger" onClick={p.onClearBackground}>Remove</button>
               </div>

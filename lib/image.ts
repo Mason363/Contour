@@ -219,14 +219,20 @@ export const renderArtboardCanvas = async (
   }
 
   // Blurred original backdrop (brings the photo's own background back, blurred).
+  // Drawn scaled-up about the crop centre so the blur's faded edge falls outside the
+  // crop and the image border doesn't go transparent.
   if (blurActive) {
     const orig = await loadImage(a.originalSrc);
     const blurPx = (a.blurAmount / 100) * maxSide * 0.05;
+    const overscan = 1 + (blurPx * 4) / Math.min(cropW, cropH);
     ctx.save();
     ctx.beginPath();
     ctx.rect(0, 0, cropW, cropH);
     ctx.clip();
     ctx.filter = `blur(${blurPx}px)`;
+    ctx.translate(cropW / 2, cropH / 2);
+    ctx.scale(overscan, overscan);
+    ctx.translate(-cropW / 2, -cropH / 2);
     ctx.drawImage(orig, -a.crop.x, -a.crop.y);
     ctx.restore();
   }

@@ -33,6 +33,8 @@ export default function ContourApp() {
   // Pending (unconfirmed) brush edits — previewed live, applied on confirm.
   const [pendingMaskSrc, setPendingMaskSrc] = useState<string | null>(null);
   const [pendingMode, setPendingMode] = useState<"remove" | "restore" | null>(null);
+  // The previewed region (raw stroke, or the auto-detected expansion of it).
+  const [previewRegionSrc, setPreviewRegionSrc] = useState<string | null>(null);
   const [showComparisonSlider, setShowComparisonSlider] = useState<boolean>(false);
   const [isComparing, setIsComparing] = useState<boolean>(false);
 
@@ -116,6 +118,7 @@ export default function ContourApp() {
         baseMaskSrc: null,
         paintMaskSrc: null,
         bgRemovalStrength: 50,
+        invert: false,
         bgRemovalModel: "isnet",
         bgRemovalDevice: "cpu",
         bgRemovalWorker: true,
@@ -249,7 +252,8 @@ export default function ContourApp() {
         active.paintMaskSrc,
         null,
         active.bgRemovalStrength,
-        null
+        null,
+        active.invert
       );
       setArtboards((prev) => prev.map((a) =>
         a.id === active.id ? {
@@ -274,7 +278,8 @@ export default function ContourApp() {
   const onUpdateBgRemoval = async (patch: {
     bgRemovalStrength?: number;
     paintMaskSrc?: string | null;
-    bgRemovalModel?: "isnet" | "isnet_fp16" | "isnet_quint8" | "birefnet";
+    invert?: boolean;
+    bgRemovalModel?: "isnet" | "isnet_fp16" | "isnet_quint8" | "best";
     bgRemovalDevice?: "cpu" | "gpu";
     bgRemovalWorker?: boolean;
   }) => {
@@ -282,6 +287,7 @@ export default function ContourApp() {
 
     const nextStrength = patch.bgRemovalStrength !== undefined ? patch.bgRemovalStrength : active.bgRemovalStrength;
     const nextPaintMask = patch.paintMaskSrc !== undefined ? patch.paintMaskSrc : active.paintMaskSrc;
+    const nextInvert = patch.invert !== undefined ? patch.invert : active.invert;
     const nextModel = patch.bgRemovalModel !== undefined ? patch.bgRemovalModel : active.bgRemovalModel;
     const nextDevice = patch.bgRemovalDevice !== undefined ? patch.bgRemovalDevice : active.bgRemovalDevice;
     const nextWorker = patch.bgRemovalWorker !== undefined ? patch.bgRemovalWorker : active.bgRemovalWorker;
@@ -290,7 +296,8 @@ export default function ContourApp() {
 
     if (active.bgRemoved && active.baseMaskSrc && (
       patch.bgRemovalStrength !== undefined ||
-      patch.paintMaskSrc !== undefined
+      patch.paintMaskSrc !== undefined ||
+      patch.invert !== undefined
     )) {
       try {
         nextProcessed = await applyBgRemovalMasks(
@@ -299,7 +306,8 @@ export default function ContourApp() {
           nextPaintMask,
           null,
           nextStrength,
-          null
+          null,
+          nextInvert
         );
       } catch (err) {
         console.error("Failed to re-composite masks:", err);
@@ -311,6 +319,7 @@ export default function ContourApp() {
         ...a,
         bgRemovalStrength: nextStrength,
         paintMaskSrc: nextPaintMask,
+        invert: nextInvert,
         bgRemovalModel: nextModel,
         bgRemovalDevice: nextDevice,
         bgRemovalWorker: nextWorker,
@@ -354,7 +363,8 @@ export default function ContourApp() {
           mergedPaint,
           null,
           active.bgRemovalStrength,
-          null
+          null,
+          active.invert
         );
       }
 
@@ -363,6 +373,7 @@ export default function ContourApp() {
       ));
       setPendingMaskSrc(null);
       setPendingMode(null);
+      setPreviewRegionSrc(null);
       showToast(pendingMode === "remove" ? "Erased" : "Restored");
     } catch (err) {
       console.error("Apply brush failed:", err);
@@ -373,13 +384,31 @@ export default function ContourApp() {
   const onCancelBrush = () => {
     setPendingMaskSrc(null);
     setPendingMode(null);
+    setPreviewRegionSrc(null);
   };
 
   // Discard pending brush edits when leaving the brush / switching artboard.
   useEffect(() => {
     setPendingMaskSrc(null);
     setPendingMode(null);
+    setPreviewRegionSrc(null);
   }, [activeId, tool]);
+
+  // Preview region: with auto-detect on, expand the stroke (debounced) so the user
+  // sees the whole detected object highlighted/peeking back, not just the raw stroke.
+  useEffect(() => {
+    if (!pendingMaskSrc || !pendingMode || !active) { setPreviewRegionSrc(null); return; }
+    if (!magicBrush) { setPreviewRegionSrc(pendingMaskSrc); return; }
+    let cancelled = false;
+    const handle = setTimeout(async () => {
+      try {
+        const region = await magicExpandSelection(active.originalSrc, pendingMaskSrc, pendingMode);
+        if (!cancelled) setPreviewRegionSrc(region);
+      } catch { if (!cancelled) setPreviewRegionSrc(pendingMaskSrc); }
+    }, 200);
+    return () => { cancelled = true; clearTimeout(handle); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingMaskSrc, pendingMode, magicBrush, active?.id]);
 
   // Enter applies, Escape cancels, while a pending brush edit exists.
   useEffect(() => {
@@ -407,7 +436,8 @@ export default function ContourApp() {
           null,
           null,
           active.bgRemovalStrength,
-          null
+          null,
+          active.invert
         );
       } catch (err) {
         console.error("Failed to clear brush edits:", err);
@@ -491,7 +521,8 @@ export default function ContourApp() {
           active.paintMaskSrc,
           null,
           active.bgRemovalStrength,
-          null
+          null,
+          active.invert
         );
         working = { ...active, processedSrc: finalCutout, baseMaskSrc: baseMask, bgRemoved: true };
         setBgProgress(null);
@@ -518,6 +549,7 @@ export default function ContourApp() {
         baseMaskSrc: working.baseMaskSrc ?? null,
         paintMaskSrc: working.paintMaskSrc ?? null,
         bgRemovalStrength: working.bgRemovalStrength ?? 50,
+        invert: active.invert,
         bgRemovalModel: working.bgRemovalModel ?? "isnet",
         bgRemovalDevice: working.bgRemovalDevice ?? "cpu",
         bgRemovalWorker: working.bgRemovalWorker ?? true,
@@ -634,6 +666,7 @@ export default function ContourApp() {
           isComparing={isComparing}
           onBrushStroke={onBrushStroke}
           pendingMaskSrc={pendingMaskSrc}
+          previewRegionSrc={previewRegionSrc}
           pendingMode={pendingMode}
           onCopyImage={onCopy}
         />
@@ -682,6 +715,7 @@ export default function ContourApp() {
           pendingMode={pendingMode}
           onApplyBrush={onApplyBrush}
           onCancelBrush={onCancelBrush}
+          onToggleInvert={() => active && onUpdateBgRemoval({ invert: !active.invert })}
         />
       </div>
 

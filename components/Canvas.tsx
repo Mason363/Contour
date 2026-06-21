@@ -23,6 +23,7 @@ interface Props {
   isComparing: boolean;
   onBrushStroke: (strokeSrc: string, mode: "remove" | "restore") => void;
   pendingMaskSrc: string | null;
+  previewRegionSrc: string | null;
   pendingMode: "remove" | "restore" | null;
   onCopyImage?: () => void;
 }
@@ -46,6 +47,7 @@ export default function Canvas({
   isComparing,
   onBrushStroke,
   pendingMaskSrc,
+  previewRegionSrc,
   pendingMode,
   onCopyImage,
 }: Props) {
@@ -615,23 +617,31 @@ export default function Canvas({
               ) : (
                 /* B. Normal rendering layers (no split slider active) */
                 <>
-                  {/* Blurred original backdrop (Background Effects: blur) */}
-                  {artboard.blurBackground && artboard.processedSrc && !showVector && artboard.visible && (
-                    <img
-                      src={artboard.originalSrc}
-                      alt="blur-backdrop"
-                      draggable={false}
-                      style={{
-                        position: "absolute",
-                        left: cropMode ? 0 : -artboard.crop.x,
-                        top: cropMode ? 0 : -artboard.crop.y,
-                        width: artboard.width,
-                        height: artboard.height,
-                        filter: `blur(${(artboard.blurAmount / 100) * Math.max(artboard.width, artboard.height) * 0.05}px)`,
-                        zIndex: 1,
-                      }}
-                    />
-                  )}
+                  {/* Blurred original backdrop (Background Effects: blur). Scaled up a
+                      touch so the blur's faded edges fall outside the crop instead of
+                      letting the image border go transparent. */}
+                  {artboard.blurBackground && artboard.processedSrc && !showVector && artboard.visible && (() => {
+                    const blurPx = (artboard.blurAmount / 100) * Math.max(artboard.width, artboard.height) * 0.05;
+                    const overscan = 1 + (blurPx * 4) / Math.min(artboard.width, artboard.height);
+                    return (
+                      <img
+                        src={artboard.originalSrc}
+                        alt="blur-backdrop"
+                        draggable={false}
+                        style={{
+                          position: "absolute",
+                          left: cropMode ? 0 : -artboard.crop.x,
+                          top: cropMode ? 0 : -artboard.crop.y,
+                          width: artboard.width,
+                          height: artboard.height,
+                          filter: `blur(${blurPx}px)`,
+                          transform: `scale(${overscan})`,
+                          transformOrigin: "center",
+                          zIndex: 1,
+                        }}
+                      />
+                    );
+                  })()}
 
                   {/* Imported background, clipped to the artboard region */}
                   {artboard.background && !showVector && artboard.visible && (
@@ -764,14 +774,37 @@ export default function Canvas({
                 />
               )}
 
-              {/* Pending brush preview. For Restore, the original peeks back faintly in
-                  the painted area; the coloured stroke shows the region either way. */}
-              {isBrushingTool(tool) && pendingMaskSrc && (
-                <>
-                  {pendingMode === "restore" && (
+              {/* Pending brush preview, over the detected region (auto-detect) or the raw
+                  stroke. For Restore the original peeks back so you can see what you are
+                  bringing back; for Erase the red region shows what will be removed. */}
+              {isBrushingTool(tool) && (previewRegionSrc || pendingMaskSrc) && (() => {
+                const previewSrc = previewRegionSrc || pendingMaskSrc!;
+                return (
+                  <>
+                    {pendingMode === "restore" && (
+                      <img
+                        src={artboard.originalSrc}
+                        alt="restore-preview"
+                        draggable={false}
+                        style={{
+                          position: "absolute",
+                          left: cropMode ? 0 : -artboard.crop.x,
+                          top: cropMode ? 0 : -artboard.crop.y,
+                          width: artboard.width,
+                          height: artboard.height,
+                          opacity: 0.65,
+                          pointerEvents: "none",
+                          zIndex: 8,
+                          WebkitMaskImage: `url(${previewSrc})`,
+                          maskImage: `url(${previewSrc})`,
+                          WebkitMaskSize: "100% 100%",
+                          maskSize: "100% 100%",
+                        }}
+                      />
+                    )}
                     <img
-                      src={artboard.originalSrc}
-                      alt="restore-preview"
+                      src={previewSrc}
+                      alt="brush-region"
                       draggable={false}
                       style={{
                         position: "absolute",
@@ -779,33 +812,14 @@ export default function Canvas({
                         top: cropMode ? 0 : -artboard.crop.y,
                         width: artboard.width,
                         height: artboard.height,
-                        opacity: 0.5,
+                        opacity: 0.3,
                         pointerEvents: "none",
-                        zIndex: 8,
-                        WebkitMaskImage: `url(${pendingMaskSrc})`,
-                        maskImage: `url(${pendingMaskSrc})`,
-                        WebkitMaskSize: "100% 100%",
-                        maskSize: "100% 100%",
+                        zIndex: 9,
                       }}
                     />
-                  )}
-                  <img
-                    src={pendingMaskSrc}
-                    alt="brush-region"
-                    draggable={false}
-                    style={{
-                      position: "absolute",
-                      left: cropMode ? 0 : -artboard.crop.x,
-                      top: cropMode ? 0 : -artboard.crop.y,
-                      width: artboard.width,
-                      height: artboard.height,
-                      opacity: 0.35,
-                      pointerEvents: "none",
-                      zIndex: 9,
-                    }}
-                  />
-                </>
-              )}
+                  </>
+                );
+              })()}
 
               {/* Live brush stroke surface (full image, low opacity) */}
               {isBrushingTool(tool) && artboard.visible && (
