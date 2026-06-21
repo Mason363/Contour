@@ -409,19 +409,36 @@ export default function RightPanel(p: Props) {
                 label="Background zoom"
                 value={Math.round(a.background.scale * 100)}
                 min={10} max={400}
-                onChange={(v) =>
-                  p.onUpdate({ background: { ...a.background!, scale: v / 100 } })
-                }
+                onChange={(v) => {
+                  const bg = a.background!;
+                  const newScale = v / 100;
+                  // Keep the background's centre fixed (zoom from centre).
+                  const cx = bg.offsetX + (bg.naturalWidth * bg.scale) / 2;
+                  const cy = bg.offsetY + (bg.naturalHeight * bg.scale) / 2;
+                  p.onUpdate({
+                    background: {
+                      ...bg,
+                      scale: newScale,
+                      offsetX: cx - (bg.naturalWidth * newScale) / 2,
+                      offsetY: cy - (bg.naturalHeight * newScale) / 2,
+                    },
+                  });
+                }}
               />
               <div className="btn-row">
                 <button
                   className={`btn ${p.tool === "background" ? "btn-primary" : ""}`}
                   onClick={() => p.setTool(p.tool === "background" ? "move" : "background")}
                 >
-                  Frame
+                  Move background
                 </button>
                 <button className="btn btn-danger" onClick={p.onClearBackground}>Remove</button>
               </div>
+              {p.tool === "background" && (
+                <p className="hint" style={{ marginTop: 8 }}>
+                  Drag to reposition, or drag a corner to resize. The cut-out is faded while you adjust.
+                </p>
+              )}
             </>
           ) : (
             <button className="btn btn-block" onClick={p.onImportBackground}>

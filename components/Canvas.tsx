@@ -370,6 +370,35 @@ export default function Canvas({
     document.addEventListener("mouseup", up);
   };
 
+  // ----- Background corner resize (uniform scale, opposite corner anchored) -----
+  const beginBgResize = (e: React.MouseEvent, corner: "nw" | "ne" | "sw" | "se") => {
+    if (!artboard?.background) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const start = { ...artboard.background };
+    const startW = start.naturalWidth * start.scale;
+    const startH = start.naturalHeight * start.scale;
+    const mx = e.clientX, my = e.clientY;
+    const mv = (ev: MouseEvent) => {
+      const dx = (ev.clientX - mx) / zoomRef.current;
+      const width = corner.includes("e") ? startW + dx : startW - dx;
+      const scale = Math.max(0.05, width / start.naturalWidth);
+      const nW = start.naturalWidth * scale;
+      const nH = start.naturalHeight * scale;
+      let offsetX = start.offsetX;
+      let offsetY = start.offsetY;
+      if (corner.includes("w")) offsetX = start.offsetX + startW - nW; // right edge anchored
+      if (corner.includes("n")) offsetY = start.offsetY + startH - nH; // bottom edge anchored
+      onBackgroundChange({ ...start, scale, offsetX, offsetY });
+    };
+    const up = () => {
+      document.removeEventListener("mousemove", mv);
+      document.removeEventListener("mouseup", up);
+    };
+    document.addEventListener("mousemove", mv);
+    document.addEventListener("mouseup", up);
+  };
+
   // ----- Empty state -----
   if (!artboard) {
     return (
@@ -606,6 +635,8 @@ export default function Canvas({
                           width: artboard.width,
                           height: artboard.height,
                           zIndex: 2,
+                          // Fade the cut-out while moving/resizing the background.
+                          opacity: tool === "background" ? 0.35 : 1,
                         }}
                       />
                     )
@@ -618,13 +649,51 @@ export default function Canvas({
                 </>
               )}
 
-              {/* Background drag surface */}
+              {/* Background move/resize surface */}
               {tool === "background" && artboard.background && (
-                <div
-                  className="bg-drag artboard-layer"
-                  style={{ cursor: "move", zIndex: 4 }}
-                  onMouseDown={beginBg}
-                />
+                <div className="bg-drag artboard-layer" style={{ zIndex: 4 }}>
+                  {/* Move surface */}
+                  <div
+                    style={{ position: "absolute", inset: 0, cursor: "move" }}
+                    onMouseDown={beginBg}
+                  />
+                  {/* Outline + corner handles around the background rect (crop space) */}
+                  {(() => {
+                    const bg = artboard.background!;
+                    const left = (cropMode ? artboard.crop.x : 0) + bg.offsetX;
+                    const top = (cropMode ? artboard.crop.y : 0) + bg.offsetY;
+                    const w = bg.naturalWidth * bg.scale;
+                    const h = bg.naturalHeight * bg.scale;
+                    const corners: Array<{ d: "nw" | "ne" | "sw" | "se"; x: number; y: number; cur: string }> = [
+                      { d: "nw", x: left, y: top, cur: "nwse-resize" },
+                      { d: "ne", x: left + w, y: top, cur: "nesw-resize" },
+                      { d: "sw", x: left, y: top + h, cur: "nesw-resize" },
+                      { d: "se", x: left + w, y: top + h, cur: "nwse-resize" },
+                    ];
+                    return (
+                      <>
+                        <div style={{ position: "absolute", left, top, width: w, height: h, border: "1.5px dashed var(--cyan)", pointerEvents: "none" }} />
+                        {corners.map((c) => (
+                          <div
+                            key={c.d}
+                            onMouseDown={(e) => beginBgResize(e, c.d)}
+                            style={{
+                              position: "absolute",
+                              left: c.x - 6,
+                              top: c.y - 6,
+                              width: 12,
+                              height: 12,
+                              background: "var(--cyan)",
+                              border: "2px solid #fff",
+                              borderRadius: 2,
+                              cursor: c.cur,
+                            }}
+                          />
+                        ))}
+                      </>
+                    );
+                  })()}
+                </div>
               )}
 
               {/* Crop overlay */}
