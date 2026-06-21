@@ -157,13 +157,13 @@ export type SvgMode = "preview" | "display" | "export";
  *  - "display"  solid black fills stretched to fill the artboard's vector view;
  *  - "export"   solid black fills at the SVG's native dimensions.
  */
-export const styleSvg = (svg: string, mode: SvgMode, isColor = false): string => {
+export const styleSvg = (svg: string, mode: SvgMode, isColor = false, fill = "#000"): string => {
   const style =
     mode === "preview"
       ? "path{fill:none !important;stroke:#22d3ee;stroke-width:1.25px;vector-effect:non-scaling-stroke}"
       : isColor
         ? "path{stroke:none}"
-        : "path{fill:#000 !important;stroke:none}";
+        : `path{fill:${fill} !important;stroke:none}`;
   const stretch = mode !== "export";
   return svg.replace(/<svg([^>]*)>/, (_m, attrs) => {
     let a = attrs;

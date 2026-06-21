@@ -33,10 +33,14 @@ never leave your device.
   other away. Lost someone in the cut-out? Restore them with a quick scribble.
   - **Auto-detect** toggle (on by default) expands a stroke to the whole object; turn it
     off to act on exactly the pixels you paint.
+  - **Live preview + confirm** — strokes are previewed (Restore shows the background
+    peeking back) and applied only when you hit **Apply** (Enter/Esc to apply/cancel).
   - **Erase** works before *and* after removal; **Restore** after removal. Adjustable
     brush size.
 - **Sensitivity** — tighten or loosen the cut-out edge without re-running the model.
-- **Model quality** — High Quality, Balanced, or Fast, with CPU or WebGPU execution.
+- **Invert** — keep the background and drop the subject in one click.
+- **Model quality** — Fast, Balanced, High Quality, or **Best** (a higher-quality matting
+  model that runs in-browser via WebGPU, with automatic fallback). CPU or WebGPU.
 - **Compare** — hold to flip before/after, or drag a split-screen slider.
 
 ### Background & effects

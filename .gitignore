@@ -29,3 +29,7 @@ next-env.d.ts
 # editor
 .vscode
 .idea
+
+# local tooling / non-critical source assets
+.claude/
+/Icon/

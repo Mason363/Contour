@@ -55,7 +55,10 @@ export default function ContourApp() {
   const bgInputRef = useRef<HTMLInputElement>(null);
 
   const active = artboards.find((a) => a.id === activeId) ?? null;
-  const vectorDisplaySvg = active?.vectorSvg ? styleSvg(active.vectorSvg, "display") : null;
+  // Generated vectors render white in dark mode, black in light mode.
+  const vectorDisplaySvg = active?.vectorSvg
+    ? styleSvg(active.vectorSvg, "display", active.trace.colorGrouping, theme === "dark" ? "#ffffff" : "#000000")
+    : null;
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
