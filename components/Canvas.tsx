@@ -410,7 +410,16 @@ export default function Canvas({
           <div style={{ width: displayW * zoom, height: displayH * zoom }}>
             <div
               className="artboard"
-              style={{ width: displayW, height: displayH, transform: `scale(${zoom})` }}
+              style={{
+                width: displayW,
+                height: displayH,
+                transform: `scale(${zoom})`,
+                // In normal view every layer is positioned at -crop.x/-crop.y inside a
+                // crop.w x crop.h box, so anything outside the crop must be clipped.
+                // In crop mode the full image is shown and the crop handles sit just
+                // outside the crop box, so overflow must stay visible.
+                overflow: cropMode ? "visible" : "hidden",
+              }}
             >
               {/* Comparing state overlay (Compare button held down) */}
               {isComparing && (
