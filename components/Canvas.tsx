@@ -57,7 +57,14 @@ export default function Canvas({
   // Split-Screen comparison states
   const [sliderX, setSliderX] = useState(50);
   const [isAnimatingSlider, setIsAnimatingSlider] = useState(false);
-  const prevBgRemoved = useRef(artboard?.bgRemoved);
+  // Track the (id, bgRemoved) we last saw so the reveal animation only fires on a
+  // genuine false -> true transition of the *current* artboard, not when switching
+  // between artboards that happen to differ in bgRemoved state.
+  const prevBg = useRef<{ id: string | null; bgRemoved: boolean }>({
+    id: artboard?.id ?? null,
+    bgRemoved: artboard?.bgRemoved ?? false,
+  });
+  const animRef = useRef<number | null>(null);
 
   // Brush drawing states
   const brushCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -70,32 +77,46 @@ export default function Canvas({
   const displayW = artboard ? (cropMode ? artboard.width : artboard.crop.w) : 1;
   const displayH = artboard ? (cropMode ? artboard.height : artboard.crop.h) : 1;
 
-  // Trigger comparison wipe/sweep animation when background removal finishes
+  // Trigger comparison wipe/sweep animation when background removal finishes.
+  // The line sweeps left -> right, progressively revealing the cut-out over the
+  // original. Runs regardless of whether the persistent split slider is enabled.
   useEffect(() => {
-    if (artboard?.bgRemoved && !prevBgRemoved.current) {
-      setIsAnimatingSlider(true);
-      setSliderX(0);
-      
-      let start: number | null = null;
-      const duration = 1200; // 1.2s sweep animation
-      
-      const animate = (timestamp: number) => {
-        if (!start) start = timestamp;
-        const progress = timestamp - start;
-        const val = Math.min(100, (progress / duration) * 100);
-        setSliderX(val);
-        if (progress < duration) {
-          requestAnimationFrame(animate);
-        } else {
-          setIsAnimatingSlider(false);
-          setSliderX(50); // reset back to middle
-        }
-      };
-      
-      requestAnimationFrame(animate);
-    }
-    prevBgRemoved.current = artboard?.bgRemoved;
-  }, [artboard?.bgRemoved]);
+    const id = artboard?.id ?? null;
+    const bgRemoved = artboard?.bgRemoved ?? false;
+    const prev = prevBg.current;
+    const sameBoard = prev.id === id;
+    const justRemoved = sameBoard && !prev.bgRemoved && bgRemoved;
+    prevBg.current = { id, bgRemoved };
+
+    if (!justRemoved) return;
+
+    if (animRef.current) cancelAnimationFrame(animRef.current);
+    setIsAnimatingSlider(true);
+    setSliderX(0);
+
+    let start: number | null = null;
+    const duration = 1100;
+    // easeInOutCubic for a smooth sweep
+    const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+
+    const animate = (timestamp: number) => {
+      if (start === null) start = timestamp;
+      const t = Math.min(1, (timestamp - start) / duration);
+      setSliderX(ease(t) * 100);
+      if (t < 1) {
+        animRef.current = requestAnimationFrame(animate);
+      } else {
+        animRef.current = null;
+        setIsAnimatingSlider(false);
+        setSliderX(50); // park the divider in the middle for manual comparison
+      }
+    };
+    animRef.current = requestAnimationFrame(animate);
+
+    return () => {
+      if (animRef.current) cancelAnimationFrame(animRef.current);
+    };
+  }, [artboard?.id, artboard?.bgRemoved]);
 
   // Draw existing mask onto active brush canvas
   useEffect(() => {
@@ -472,56 +493,67 @@ export default function Canvas({
                     )
                   ) : (
                     artboard.visible && (
-                      <img
-                        className="artboard-img"
-                        src={activeSrc(artboard)}
-                        alt="processed-top"
-                        draggable={false}
+                      // Crop-space wrapper so the clip aligns with the divider even
+                      // when the crop differs from the full image.
+                      <div
                         style={{
                           position: "absolute",
-                          left: cropMode ? 0 : -artboard.crop.x,
-                          top: cropMode ? 0 : -artboard.crop.y,
-                          width: artboard.width,
-                          height: artboard.height,
-                          clipPath: `inset(0 ${100 - sliderX}% 0 0)`,
+                          inset: 0,
+                          overflow: "hidden",
                           zIndex: 2,
+                          clipPath: `inset(0 ${100 - sliderX}% 0 0)`,
                         }}
-                      />
+                      >
+                        <img
+                          className="artboard-img"
+                          src={activeSrc(artboard)}
+                          alt="processed-top"
+                          draggable={false}
+                          style={{
+                            position: "absolute",
+                            left: cropMode ? 0 : -artboard.crop.x,
+                            top: cropMode ? 0 : -artboard.crop.y,
+                            width: artboard.width,
+                            height: artboard.height,
+                          }}
+                        />
+                      </div>
                     )
                   )}
 
-                  {/* Vertical drag divider line */}
+                  {/* Vertical drag divider with a wide invisible grab area */}
                   <div
                     style={{
                       position: "absolute",
                       left: `${sliderX}%`,
                       top: 0,
                       bottom: 0,
-                      width: "2px",
-                      background: "#fff",
-                      boxShadow: "0 0 4px rgba(0,0,0,0.5)",
+                      width: "22px",
+                      transform: "translateX(-11px)",
                       cursor: "ew-resize",
                       zIndex: 12,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
                     }}
                     onMouseDown={startSliderDrag}
                   >
+                    {/* The visible 2px line */}
+                    <div style={{ position: "absolute", top: 0, bottom: 0, left: "50%", width: "2px", transform: "translateX(-1px)", background: "#fff", boxShadow: "0 0 4px rgba(0,0,0,0.5)" }} />
                     {/* Drag handle badge */}
                     <div
                       style={{
-                        position: "absolute",
-                        top: "50%",
-                        left: "50%",
-                        transform: "translate(-50%, -50%)",
-                        width: "24px",
-                        height: "24px",
+                        position: "relative",
+                        width: "26px",
+                        height: "26px",
                         borderRadius: "50%",
                         background: "#fff",
                         border: "2px solid var(--accent-color)",
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
-                        boxShadow: "0 2px 4px rgba(0,0,0,0.3)",
-                        fontSize: "10px",
+                        boxShadow: "0 2px 6px rgba(0,0,0,0.35)",
+                        fontSize: "11px",
                         fontWeight: "bold",
                         color: "var(--accent-color)",
                         userSelect: "none",
