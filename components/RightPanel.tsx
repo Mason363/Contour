@@ -95,6 +95,8 @@ function Slider({
 export default function RightPanel(p: Props) {
   const a = p.artboard;
   const [isTracingExpanded, setIsTracingExpanded] = useState(false);
+  const [isCropExpanded, setIsCropExpanded] = useState(false);
+  const [isBgExpanded, setIsBgExpanded] = useState(false);
 
   if (!a) {
     return (
@@ -182,12 +184,12 @@ export default function RightPanel(p: Props) {
           {/* AI Model Settings */}
           <div style={{ display: "flex", flexDirection: "column", gap: 8, background: "var(--hover-bg)", padding: "10px 12px", borderRadius: 6, border: "1px solid var(--border-main)", marginTop: 12 }}>
             <div style={{ fontSize: "0.74rem", fontWeight: 600, color: "var(--text-main)", display: "flex", alignItems: "center", gap: 5 }}>
-              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--cyan)" }} />
-              AI Model Settings
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--text-muted)" }} />
+              Background Removal Model
             </div>
-            
+
             <div className="field" style={{ marginBottom: 0 }}>
-              <label className="field-label">Model Quality</label>
+              <label className="field-label">Quality</label>
               <select
                 className="select"
                 value={a.bgRemovalModel || "isnet"}
@@ -195,7 +197,7 @@ export default function RightPanel(p: Props) {
               >
                 <option value="isnet">High Quality (44MB)</option>
                 <option value="isnet_fp16">Balanced (22MB)</option>
-                <option value="isnet_quint8">Fast / Quantized (11MB)</option>
+                <option value="isnet_quint8">Fast (11MB)</option>
               </select>
             </div>
 
@@ -343,17 +345,24 @@ export default function RightPanel(p: Props) {
           </div>
 
           <p className="hint" style={{ marginTop: 12 }}>
-            Local AI matting (ISNet). Brush before to select an object, or after to restore/erase edges.
+            Runs entirely in your browser. Use Erase to remove parts, or Restore to bring them back.
           </p>
         </section>
 
         {/* 2. Crop & bounds */}
         <section className="section">
-          <div className="section-head">
+          <div
+            className="section-head"
+            style={{ cursor: "pointer", userSelect: "none", marginBottom: isCropExpanded ? 12 : 0 }}
+            onClick={() => setIsCropExpanded((v) => !v)}
+          >
             <Crop size={16} />
             <span className="section-title">Crop & Bounds</span>
-            <span className="section-num">2</span>
+            <span className="section-num" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              2 {isCropExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </span>
           </div>
+          {isCropExpanded && (<>
           <div className="stack">
             <button
               className={`btn btn-block ${p.tool === "crop" ? "btn-primary" : ""}`}
@@ -392,15 +401,23 @@ export default function RightPanel(p: Props) {
               />
             </div>
           </div>
+          </>)}
         </section>
 
         {/* 3. Background image */}
         <section className="section">
-          <div className="section-head">
+          <div
+            className="section-head"
+            style={{ cursor: "pointer", userSelect: "none", marginBottom: isBgExpanded ? 12 : 0 }}
+            onClick={() => setIsBgExpanded((v) => !v)}
+          >
             <ImageIcon size={16} />
             <span className="section-title">Import Background</span>
-            <span className="section-num">3</span>
+            <span className="section-num" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              3 {isBgExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </span>
           </div>
+          {isBgExpanded && (<>
           <p className="section-desc">
             Place a custom backdrop behind the cut-out. It is clipped to the crop bounds.
           </p>
@@ -429,6 +446,7 @@ export default function RightPanel(p: Props) {
               <ImageDown size={14} /> Choose background image
             </button>
           )}
+          </>)}
         </section>
 
         {/* 4. Vectorize */}
