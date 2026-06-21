@@ -28,8 +28,11 @@ export default function ContourApp() {
   const [artboards, setArtboards] = useState<Artboard[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [tool, setTool] = useState<Tool>("move");
-  const [brushSize, setBrushSize] = useState<number>(20);
+  const [brushSize, setBrushSize] = useState<number>(40);
   const [magicBrush, setMagicBrush] = useState<boolean>(true);
+  // Pending (unconfirmed) brush edits — previewed live, applied on confirm.
+  const [pendingMaskSrc, setPendingMaskSrc] = useState<string | null>(null);
+  const [pendingMode, setPendingMode] = useState<"remove" | "restore" | null>(null);
   const [showComparisonSlider, setShowComparisonSlider] = useState<boolean>(false);
   const [isComparing, setIsComparing] = useState<boolean>(false);
 
@@ -316,19 +319,35 @@ export default function ContourApp() {
     ));
   };
 
-  // ----- Magic brush stroke (Erase / Restore) -----
+  // ----- Magic brush: accumulate strokes into a pending edit (previewed, not yet
+  // applied). The raw stroke is only a guideline; the detected region is computed on
+  // Apply. -----
   const onBrushStroke = async (strokeSrc: string, mode: "remove" | "restore") => {
     if (!active) return;
     try {
+      // If the brush mode changed mid-edit, start a fresh pending batch.
+      const base = pendingMode && pendingMode === mode ? pendingMaskSrc : null;
+      const merged = await mergeMasks(base, strokeSrc);
+      setPendingMaskSrc(merged);
+      setPendingMode(mode);
+    } catch (err) {
+      console.error("Brush stroke failed:", err);
+    }
+  };
+
+  const onApplyBrush = async () => {
+    if (!active || !pendingMaskSrc || !pendingMode) return;
+    try {
+      // In auto-detect mode the stroke is a guideline: expand it to the detected
+      // object. Otherwise apply exactly the painted pixels.
       const region = magicBrush
-        ? await magicExpandSelection(active.originalSrc, strokeSrc, mode)
-        : strokeSrc;
+        ? await magicExpandSelection(active.originalSrc, pendingMaskSrc, pendingMode)
+        : pendingMaskSrc;
       const mergedPaint = await mergeMasks(active.paintMaskSrc, region);
 
-      // Recompose. Restore needs an existing base matte; Erase works even before
-      // background removal (it simply knocks out the painted pixels of the original).
+      // Restore needs an existing base matte; Erase works even before removal.
       let nextProcessed = active.processedSrc;
-      if (active.bgRemoved || mode === "remove") {
+      if (active.bgRemoved || pendingMode === "remove") {
         nextProcessed = await applyBgRemovalMasks(
           active.originalSrc,
           active.baseMaskSrc,
@@ -342,11 +361,39 @@ export default function ContourApp() {
       setArtboards((prev) => prev.map((a) =>
         a.id === active.id ? { ...a, paintMaskSrc: mergedPaint, processedSrc: nextProcessed } : a
       ));
+      setPendingMaskSrc(null);
+      setPendingMode(null);
+      showToast(pendingMode === "remove" ? "Erased" : "Restored");
     } catch (err) {
-      console.error("Brush stroke failed:", err);
+      console.error("Apply brush failed:", err);
       showToast("Brush failed");
     }
   };
+
+  const onCancelBrush = () => {
+    setPendingMaskSrc(null);
+    setPendingMode(null);
+  };
+
+  // Discard pending brush edits when leaving the brush / switching artboard.
+  useEffect(() => {
+    setPendingMaskSrc(null);
+    setPendingMode(null);
+  }, [activeId, tool]);
+
+  // Enter applies, Escape cancels, while a pending brush edit exists.
+  useEffect(() => {
+    if (!pendingMaskSrc) return;
+    const onKey = (e: KeyboardEvent) => {
+      const tag = document.activeElement?.tagName.toLowerCase();
+      if (tag === "input" || tag === "select" || tag === "textarea") return;
+      if (e.key === "Enter") { e.preventDefault(); onApplyBrush(); }
+      else if (e.key === "Escape") { e.preventDefault(); onCancelBrush(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingMaskSrc, pendingMode, magicBrush]);
 
   const onClearBrushEdits = async () => {
     if (!active) return;
@@ -586,6 +633,8 @@ export default function ContourApp() {
           showComparisonSlider={showComparisonSlider}
           isComparing={isComparing}
           onBrushStroke={onBrushStroke}
+          pendingMaskSrc={pendingMaskSrc}
+          pendingMode={pendingMode}
           onCopyImage={onCopy}
         />
 
@@ -629,6 +678,10 @@ export default function ContourApp() {
           setIsComparing={setIsComparing}
           onUpdateBgRemoval={onUpdateBgRemoval}
           onClearBrushEdits={onClearBrushEdits}
+          pendingBrush={!!pendingMaskSrc}
+          pendingMode={pendingMode}
+          onApplyBrush={onApplyBrush}
+          onCancelBrush={onCancelBrush}
         />
       </div>
 

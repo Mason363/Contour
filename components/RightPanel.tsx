@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import {
   Scissors, Wand2, Eraser, ImageDown, Crop, Sparkles, Loader2,
   RotateCcw, Image as ImageIcon, Copy, Package, Download,
-  AlertCircle, ChevronDown, ChevronUp, Plus, Minus, Layers
+  AlertCircle, ChevronDown, ChevronUp, Plus, Minus, Layers, Check, X
 } from "lucide-react";
 import type { Artboard, TraceSettings, CropRect } from "@/lib/types";
 import type { Tool } from "./Canvas";
@@ -67,6 +67,11 @@ interface Props {
     bgRemovalWorker?: boolean;
   }) => void;
   onClearBrushEdits: () => void;
+
+  pendingBrush: boolean;
+  pendingMode: "remove" | "restore" | null;
+  onApplyBrush: () => void;
+  onCancelBrush: () => void;
 }
 
 function Slider({
@@ -99,6 +104,7 @@ export default function RightPanel(p: Props) {
   const [isTracingExpanded, setIsTracingExpanded] = useState(false);
   const [isCropExpanded, setIsCropExpanded] = useState(false);
   const [isBgExpanded, setIsBgExpanded] = useState(false);
+  const [isAdvancedExpanded, setIsAdvancedExpanded] = useState(false);
 
   if (!a) {
     return (
@@ -183,60 +189,10 @@ export default function RightPanel(p: Props) {
             </div>
           )}
 
-          {/* AI Model Settings */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, background: "var(--hover-bg)", padding: "10px 12px", borderRadius: 6, border: "1px solid var(--border-main)", marginTop: 12 }}>
-            <div style={{ fontSize: "0.74rem", fontWeight: 600, color: "var(--text-main)", display: "flex", alignItems: "center", gap: 5 }}>
-              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--text-muted)" }} />
-              Background Removal Model
-            </div>
-
-            <div className="field" style={{ marginBottom: 0 }}>
-              <label className="field-label">Quality</label>
-              <select
-                className="select"
-                value={a.bgRemovalModel || "isnet"}
-                onChange={(e) => p.onUpdateBgRemoval({ bgRemovalModel: e.target.value as any })}
-              >
-                <option value="isnet">High Quality (44MB)</option>
-                <option value="isnet_fp16">Balanced (22MB)</option>
-                <option value="isnet_quint8">Fast (11MB)</option>
-              </select>
-            </div>
-
-            <div className="field" style={{ marginBottom: 0 }}>
-              <label className="field-label">Device Hardware</label>
-              <div className="segmented" style={{ background: "var(--active-bg)", borderRadius: 6, padding: 2 }}>
-                <span
-                  className={`segment ${a.bgRemovalDevice === "cpu" ? "active" : ""}`}
-                  style={{ flex: 1, textAlign: "center", fontSize: "0.68rem", cursor: "pointer", padding: "4px 0", borderRadius: 4 }}
-                  onClick={() => p.onUpdateBgRemoval({ bgRemovalDevice: "cpu" })}
-                >
-                  CPU
-                </span>
-                <span
-                  className={`segment ${a.bgRemovalDevice === "gpu" ? "active" : ""}`}
-                  style={{ flex: 1, textAlign: "center", fontSize: "0.68rem", cursor: "pointer", padding: "4px 0", borderRadius: 4 }}
-                  onClick={() => p.onUpdateBgRemoval({ bgRemovalDevice: "gpu" })}
-                >
-                  GPU (WebGPU)
-                </span>
-              </div>
-            </div>
-
-            <label className="check" style={{ fontSize: "0.72rem", display: "flex", alignItems: "center", gap: 6, cursor: "pointer", marginTop: 2, marginBottom: 0 }}>
-              <input
-                type="checkbox"
-                checked={a.bgRemovalWorker}
-                onChange={(e) => p.onUpdateBgRemoval({ bgRemovalWorker: e.target.checked })}
-              />
-              Run in background (Web Worker)
-            </label>
-          </div>
-
-          {/* Magic Brush — Erase / Restore */}
+          {/* Touch-up brushes */}
           <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 10 }}>
-            <div className="field" style={{ marginBottom: 4 }}>
-              <label className="field-label">Magic Brush</label>
+            <div className="field" style={{ marginBottom: 0 }}>
+              <label className="field-label">Touch up</label>
               <div className="btn-row">
                 <button
                   className={`btn ${p.tool === "brush-remove" ? "btn-primary" : ""}`}
@@ -261,10 +217,10 @@ export default function RightPanel(p: Props) {
             {["brush-include", "brush-remove"].includes(p.tool) && (
               <>
                 <Slider
-                  label="Brush Size"
+                  label="Brush size"
                   value={p.brushSize}
-                  min={5}
-                  max={100}
+                  min={10}
+                  max={200}
                   step={1}
                   onChange={p.setBrushSize}
                 />
@@ -274,12 +230,34 @@ export default function RightPanel(p: Props) {
                     checked={p.magicBrush}
                     onChange={(e) => p.setMagicBrush(e.target.checked)}
                   />
-                  Auto-detect (expands your stroke to the whole object)
+                  Auto-detect object
                 </label>
+
+                {p.pendingBrush ? (
+                  <>
+                    <div className="btn-row">
+                      <button className="btn btn-primary" onClick={p.onApplyBrush}>
+                        <Check size={14} /> Apply
+                      </button>
+                      <button className="btn" onClick={p.onCancelBrush}>
+                        <X size={14} /> Cancel
+                      </button>
+                    </div>
+                    <p className="hint" style={{ margin: 0 }}>
+                      {p.magicBrush
+                        ? "Your stroke is a guide — Apply detects and updates the whole object. (Enter / Esc)"
+                        : "Apply updates exactly what you painted. (Enter / Esc)"}
+                    </p>
+                  </>
+                ) : (
+                  <p className="hint" style={{ margin: 0 }}>
+                    {p.tool === "brush-remove" ? "Brush over what to remove, then Apply." : "Brush over what to bring back, then Apply."}
+                  </p>
+                )}
               </>
             )}
 
-            {/* Removal Strength Slider */}
+            {/* Sensitivity */}
             {a.bgRemoved && (
               <Slider
                 label="Sensitivity"
@@ -291,22 +269,22 @@ export default function RightPanel(p: Props) {
               />
             )}
 
-            {/* Clear Brush Edits */}
+            {/* Clear brush edits */}
             {a.paintMaskSrc && (
               <button
                 className="btn btn-danger btn-block"
                 onClick={p.onClearBrushEdits}
-                style={{ fontSize: "0.7rem", padding: "6px 0", marginTop: 4 }}
+                style={{ fontSize: "0.7rem", padding: "6px 0" }}
               >
-                Clear Brush Edits
+                Clear brush edits
               </button>
             )}
 
-            {/* Compare Tools */}
+            {/* Compare */}
             {a.bgRemoved && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 6, borderTop: "1px solid var(--border-main)", paddingTop: 10 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, borderTop: "1px solid var(--border-main)", paddingTop: 10 }}>
                 <button
-                  className="btn btn-secondary btn-block"
+                  className="btn btn-block"
                   style={{ userSelect: "none" }}
                   onMouseDown={() => p.setIsComparing(true)}
                   onMouseUp={() => p.setIsComparing(false)}
@@ -314,23 +292,72 @@ export default function RightPanel(p: Props) {
                   onTouchStart={() => p.setIsComparing(true)}
                   onTouchEnd={() => p.setIsComparing(false)}
                 >
-                  Hold to Compare Before/After
+                  Hold to compare
                 </button>
-                <label className="check" style={{ fontSize: "0.72rem", display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                <label className="check" style={{ fontSize: "0.72rem", display: "flex", alignItems: "center", gap: 6, cursor: "pointer", padding: 0 }}>
                   <input
                     type="checkbox"
                     checked={p.showComparisonSlider}
                     onChange={(e) => p.setShowComparisonSlider(e.target.checked)}
                   />
-                  Comparison split slider
+                  Before / after slider
                 </label>
               </div>
             )}
           </div>
 
-          <p className="hint" style={{ marginTop: 12 }}>
-            Runs entirely in your browser. Use Erase to remove parts, or Restore to bring them back.
-          </p>
+          {/* Advanced (model quality / device) — collapsed by default */}
+          <div style={{ marginTop: 12, borderTop: "1px solid var(--border-main)", paddingTop: 10 }}>
+            <button
+              onClick={() => setIsAdvancedExpanded((v) => !v)}
+              style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", fontSize: "0.72rem", color: "var(--text-secondary)", fontWeight: 600 }}
+            >
+              {isAdvancedExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />} Advanced model settings
+            </button>
+            {isAdvancedExpanded && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
+                <div className="field" style={{ marginBottom: 0 }}>
+                  <label className="field-label">Quality</label>
+                  <select
+                    className="select"
+                    value={a.bgRemovalModel || "isnet"}
+                    onChange={(e) => p.onUpdateBgRemoval({ bgRemovalModel: e.target.value as any })}
+                  >
+                    <option value="isnet">High Quality (44MB)</option>
+                    <option value="isnet_fp16">Balanced (22MB)</option>
+                    <option value="isnet_quint8">Fast (11MB)</option>
+                  </select>
+                </div>
+                <div className="field" style={{ marginBottom: 0 }}>
+                  <label className="field-label">Device</label>
+                  <div className="segmented" style={{ background: "var(--active-bg)", borderRadius: 6, padding: 2 }}>
+                    <span
+                      className={`segment ${a.bgRemovalDevice === "cpu" ? "active" : ""}`}
+                      style={{ flex: 1, textAlign: "center", fontSize: "0.68rem", cursor: "pointer", padding: "4px 0", borderRadius: 4 }}
+                      onClick={() => p.onUpdateBgRemoval({ bgRemovalDevice: "cpu" })}
+                    >
+                      CPU
+                    </span>
+                    <span
+                      className={`segment ${a.bgRemovalDevice === "gpu" ? "active" : ""}`}
+                      style={{ flex: 1, textAlign: "center", fontSize: "0.68rem", cursor: "pointer", padding: "4px 0", borderRadius: 4 }}
+                      onClick={() => p.onUpdateBgRemoval({ bgRemovalDevice: "gpu" })}
+                    >
+                      GPU (WebGPU)
+                    </span>
+                  </div>
+                </div>
+                <label className="check" style={{ fontSize: "0.72rem", display: "flex", alignItems: "center", gap: 6, cursor: "pointer", margin: 0 }}>
+                  <input
+                    type="checkbox"
+                    checked={a.bgRemovalWorker}
+                    onChange={(e) => p.onUpdateBgRemoval({ bgRemovalWorker: e.target.checked })}
+                  />
+                  Run in background (Web Worker)
+                </label>
+              </div>
+            )}
+          </div>
         </section>
 
         {/* 2. Crop & bounds */}

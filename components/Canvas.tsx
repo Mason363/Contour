@@ -22,6 +22,8 @@ interface Props {
   showComparisonSlider: boolean;
   isComparing: boolean;
   onBrushStroke: (strokeSrc: string, mode: "remove" | "restore") => void;
+  pendingMaskSrc: string | null;
+  pendingMode: "remove" | "restore" | null;
   onCopyImage?: () => void;
 }
 
@@ -43,6 +45,8 @@ export default function Canvas({
   showComparisonSlider,
   isComparing,
   onBrushStroke,
+  pendingMaskSrc,
+  pendingMode,
   onCopyImage,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -131,13 +135,13 @@ export default function Canvas({
     };
   }, [artboard?.id, artboard?.bgRemoved]);
 
-  // The brush canvas only ever holds the in-progress stroke; committed strokes are
-  // shown by the low-opacity guide overlay. Clear it whenever the board/tool changes.
+  // The brush canvas only ever holds the in-progress stroke; the accumulated pending
+  // edit is shown by the preview overlay. Clear it on board/tool/pending change.
   useEffect(() => {
     const canvas = brushCanvasRef.current;
     if (!canvas) return;
     canvas.getContext("2d")!.clearRect(0, 0, canvas.width, canvas.height);
-  }, [artboard?.id, tool, artboard?.paintMaskSrc]);
+  }, [artboard?.id, tool, pendingMaskSrc]);
 
   const brushColor = tool === "brush-include" ? "rgb(0, 255, 0)" : "rgb(255, 0, 0)";
 
@@ -199,6 +203,8 @@ export default function Canvas({
     if (canvas) {
       const dataUrl = canvas.toDataURL("image/png");
       onBrushStroke(dataUrl, tool === "brush-remove" ? "remove" : "restore");
+      // Hand off to the accumulated pending preview; clear the live stroke layer.
+      canvas.getContext("2d")!.clearRect(0, 0, canvas.width, canvas.height);
     }
   };
 
@@ -495,21 +501,32 @@ export default function Canvas({
               {/* A. Comparison split slider view */}
               {(showComparisonSlider || isAnimatingSlider) && !isComparing ? (
                 <>
-                  {/* Bottom: Original image */}
-                  <img
-                    className="artboard-img"
-                    src={artboard.originalSrc}
-                    alt="original-bottom"
-                    draggable={false}
+                  {/* Bottom: Original image, clipped to the RIGHT of the divider so the
+                      revealed (left) side shows the cut-out on the checkerboard rather
+                      than the original peeking through transparent areas. */}
+                  <div
                     style={{
                       position: "absolute",
-                      left: cropMode ? 0 : -artboard.crop.x,
-                      top: cropMode ? 0 : -artboard.crop.y,
-                      width: artboard.width,
-                      height: artboard.height,
+                      inset: 0,
+                      overflow: "hidden",
                       zIndex: 1,
+                      clipPath: `inset(0 0 0 ${sliderX}%)`,
                     }}
-                  />
+                  >
+                    <img
+                      className="artboard-img"
+                      src={artboard.originalSrc}
+                      alt="original-bottom"
+                      draggable={false}
+                      style={{
+                        position: "absolute",
+                        left: cropMode ? 0 : -artboard.crop.x,
+                        top: cropMode ? 0 : -artboard.crop.y,
+                        width: artboard.width,
+                        height: artboard.height,
+                      }}
+                    />
+                  </div>
                   
                   {/* Top: Cutout (or vector) with clip-path */}
                   {showVector ? (
@@ -747,23 +764,47 @@ export default function Canvas({
                 />
               )}
 
-              {/* Committed paint mask (low-opacity guide), in original-image space */}
-              {isBrushingTool(tool) && artboard.paintMaskSrc && (
-                <img
-                  src={artboard.paintMaskSrc}
-                  alt="brush-guide"
-                  draggable={false}
-                  style={{
-                    position: "absolute",
-                    left: cropMode ? 0 : -artboard.crop.x,
-                    top: cropMode ? 0 : -artboard.crop.y,
-                    width: artboard.width,
-                    height: artboard.height,
-                    opacity: 0.4,
-                    pointerEvents: "none",
-                    zIndex: 9,
-                  }}
-                />
+              {/* Pending brush preview. For Restore, the original peeks back faintly in
+                  the painted area; the coloured stroke shows the region either way. */}
+              {isBrushingTool(tool) && pendingMaskSrc && (
+                <>
+                  {pendingMode === "restore" && (
+                    <img
+                      src={artboard.originalSrc}
+                      alt="restore-preview"
+                      draggable={false}
+                      style={{
+                        position: "absolute",
+                        left: cropMode ? 0 : -artboard.crop.x,
+                        top: cropMode ? 0 : -artboard.crop.y,
+                        width: artboard.width,
+                        height: artboard.height,
+                        opacity: 0.5,
+                        pointerEvents: "none",
+                        zIndex: 8,
+                        WebkitMaskImage: `url(${pendingMaskSrc})`,
+                        maskImage: `url(${pendingMaskSrc})`,
+                        WebkitMaskSize: "100% 100%",
+                        maskSize: "100% 100%",
+                      }}
+                    />
+                  )}
+                  <img
+                    src={pendingMaskSrc}
+                    alt="brush-region"
+                    draggable={false}
+                    style={{
+                      position: "absolute",
+                      left: cropMode ? 0 : -artboard.crop.x,
+                      top: cropMode ? 0 : -artboard.crop.y,
+                      width: artboard.width,
+                      height: artboard.height,
+                      opacity: 0.35,
+                      pointerEvents: "none",
+                      zIndex: 9,
+                    }}
+                  />
+                </>
               )}
 
               {/* Live brush stroke surface (full image, low opacity) */}

@@ -62,24 +62,50 @@ export const magicExpandSelection = async (
   const queue = new Int32Array(N);
   let qlen = 0;
 
-  // Seeds: where the stroke painted. Also accumulate the seed mean colour.
-  let sr = 0, sg = 0, sb = 0, seedCount = 0;
+  // Collect stroke pixels and find the DOMINANT colour the user painted over, using
+  // a coarse colour histogram. The stroke is only a guide: stray marks that aren't on
+  // the dominant (target) colour are ignored, so we don't change what was scribbled
+  // across by accident.
+  const strokePix: number[] = [];
+  const hist = new Map<number, number>();
+  const BUCKET = 24;
   for (let p = 0; p < N; p++) {
     if (sd[p * 4 + 3] > 40) {
-      visited[p] = 1;
-      queue[qlen++] = p;
+      strokePix.push(p);
       const i = p * 4;
-      sr += od[i]; sg += od[i + 1]; sb += od[i + 2];
-      seedCount++;
+      const key = ((od[i] / BUCKET) | 0) * 10000 + ((od[i + 1] / BUCKET) | 0) * 100 + ((od[i + 2] / BUCKET) | 0);
+      hist.set(key, (hist.get(key) || 0) + 1);
     }
   }
-  if (seedCount === 0) return strokeSrc; // nothing painted; return as-is
-  sr /= seedCount; sg /= seedCount; sb /= seedCount;
+  if (strokePix.length === 0) return strokeSrc; // nothing painted; return as-is
+
+  let domKey = -1, domCount = -1;
+  for (const [k, c] of hist) if (c > domCount) { domCount = c; domKey = k; }
+
+  // Mean colour of stroke pixels within the dominant bucket (the intended target).
+  let sr = 0, sg = 0, sb = 0, dom = 0;
+  for (const p of strokePix) {
+    const i = p * 4;
+    const key = ((od[i] / BUCKET) | 0) * 10000 + ((od[i + 1] / BUCKET) | 0) * 100 + ((od[i + 2] / BUCKET) | 0);
+    if (key === domKey) { sr += od[i]; sg += od[i + 1]; sb += od[i + 2]; dom++; }
+  }
+  sr /= dom; sg /= dom; sb /= dom;
 
   const LOCAL_TOL = 30;   // adjacency gradient tolerance (stops at edges)
-  const SEED_TOL = 72;    // max distance from the seed mean colour (bounds the grow)
+  const SEED_TOL = 80;    // max distance from the target colour (bounds the grow)
   const seedTolSq = SEED_TOL * SEED_TOL;
   const localTolSq = LOCAL_TOL * LOCAL_TOL;
+
+  // Seed only the stroke pixels that match the target colour (ignore stray marks).
+  for (const p of strokePix) {
+    const i = p * 4;
+    const mr = od[i] - sr, mg = od[i + 1] - sg, mb = od[i + 2] - sb;
+    if (mr * mr + mg * mg + mb * mb <= seedTolSq) {
+      visited[p] = 1;
+      queue[qlen++] = p;
+    }
+  }
+  if (qlen === 0) return strokeSrc;
 
   let head = 0;
   while (head < qlen) {
@@ -88,7 +114,6 @@ export const magicExpandSelection = async (
     const y = (p - x) / w;
     const i = p * 4;
     const r = od[i], g = od[i + 1], b = od[i + 2];
-    // 4-connected neighbours
     const neigh = [
       x > 0 ? p - 1 : -1,
       x < w - 1 ? p + 1 : -1,
@@ -108,13 +133,20 @@ export const magicExpandSelection = async (
     }
   }
 
-  // Paint the grown region in the correct channel.
+  // Morphological close (dilate then erode) to fill small holes and smooth the edge.
+  let region = new Uint8ClampedArray(N);
+  for (let p = 0; p < N; p++) region[p] = visited[p] ? 255 : 0;
+  const r = Math.max(1, Math.round(Math.min(w, h) * 0.012));
+  region = new Uint8ClampedArray(morph(region, w, h, r, "max"));
+  region = new Uint8ClampedArray(morph(region, w, h, r, "min"));
+
+  // Paint the region in the correct channel.
   const out = octx.createImageData(w, h);
   const oData = out.data;
   const cr = mode === "remove" ? 255 : 0;
   const cg = mode === "remove" ? 0 : 255;
   for (let p = 0; p < N; p++) {
-    if (visited[p]) {
+    if (region[p] > 127) {
       const i = p * 4;
       oData[i] = cr; oData[i + 1] = cg; oData[i + 2] = 0; oData[i + 3] = 255;
     }
