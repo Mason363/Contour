@@ -78,6 +78,25 @@ export default function Canvas({
   const lastPos = useRef({ x: 0, y: 0 });
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
 
+  // Restore brush background helper state
+  const [showHelperBackdrop, setShowHelperBackdrop] = useState(false);
+  const prevPending = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (tool === "brush-include") {
+      setShowHelperBackdrop(true);
+    } else {
+      setShowHelperBackdrop(false);
+    }
+  }, [tool]);
+
+  useEffect(() => {
+    if (tool === "brush-include" && prevPending.current !== null && pendingMaskSrc === null) {
+      setShowHelperBackdrop(false);
+    }
+    prevPending.current = pendingMaskSrc;
+  }, [pendingMaskSrc, tool]);
+
   // Right-click context menu (copy full-resolution image)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   useEffect(() => {
@@ -163,6 +182,7 @@ export default function Canvas({
   const startBrush = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (e.button !== 0) return; // Left click only
     isDrawing.current = true;
+    setShowHelperBackdrop(true);
     const pos = getMousePos(e);
     lastPos.current = pos;
 
@@ -681,7 +701,7 @@ export default function Canvas({
                   )}
 
                   {/* Restore brush helper backdrop: show the original image at 50% opacity behind the cutout */}
-                  {tool === "brush-include" && artboard.bgRemoved && artboard.visible && !showVector && (
+                  {showHelperBackdrop && artboard.bgRemoved && artboard.visible && !showVector && (
                     <img
                       className="artboard-img"
                       src={artboard.originalSrc}
