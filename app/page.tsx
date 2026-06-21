@@ -13,7 +13,7 @@ import {
   autoContentBounds,
 } from "@/lib/image";
 import { removeImageBackground } from "@/lib/bg";
-import { extractAlphaMask, applyBgRemovalMasks } from "@/lib/mask";
+import { extractAlphaMask, applyBgRemovalMasks, magicExpandSelection, mergeMasks } from "@/lib/mask";
 import { buildPreviewSvg, traceToSvg, styleSvg } from "@/lib/vectorize";
 import { exportArtboard, exportAllZip, copyArtboardToClipboard, downloadBlob } from "@/lib/export";
 
@@ -27,6 +27,7 @@ export default function ContourApp() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [tool, setTool] = useState<Tool>("move");
   const [brushSize, setBrushSize] = useState<number>(20);
+  const [magicBrush, setMagicBrush] = useState<boolean>(true);
   const [showComparisonSlider, setShowComparisonSlider] = useState<boolean>(false);
   const [isComparing, setIsComparing] = useState<boolean>(false);
 
@@ -101,12 +102,14 @@ export default function ContourApp() {
         visible: true,
         baseMaskSrc: null,
         paintMaskSrc: null,
-        objectMaskSrc: null,
         bgRemovalStrength: 50,
-        objectSelectionMode: "keep",
         bgRemovalModel: "isnet",
         bgRemovalDevice: "cpu",
         bgRemovalWorker: true,
+        blurBackground: false,
+        blurAmount: 50,
+        shadow: false,
+        shadowOpacity: 35,
       };
       setArtboards((prev) => [...prev, ab]);
       setActiveId(ab.id);
@@ -231,9 +234,9 @@ export default function ContourApp() {
         active.originalSrc,
         baseMask,
         active.paintMaskSrc,
-        active.objectMaskSrc,
+        null,
         active.bgRemovalStrength,
-        active.objectSelectionMode
+        null
       );
       setArtboards((prev) => prev.map((a) =>
         a.id === active.id ? {
@@ -258,8 +261,6 @@ export default function ContourApp() {
   const onUpdateBgRemoval = async (patch: {
     bgRemovalStrength?: number;
     paintMaskSrc?: string | null;
-    objectMaskSrc?: string | null;
-    objectSelectionMode?: "keep" | "remove" | null;
     bgRemovalModel?: "isnet" | "isnet_fp16" | "isnet_quint8";
     bgRemovalDevice?: "cpu" | "gpu";
     bgRemovalWorker?: boolean;
@@ -268,8 +269,6 @@ export default function ContourApp() {
 
     const nextStrength = patch.bgRemovalStrength !== undefined ? patch.bgRemovalStrength : active.bgRemovalStrength;
     const nextPaintMask = patch.paintMaskSrc !== undefined ? patch.paintMaskSrc : active.paintMaskSrc;
-    const nextObjectMask = patch.objectMaskSrc !== undefined ? patch.objectMaskSrc : active.objectMaskSrc;
-    const nextObjectMode = patch.objectSelectionMode !== undefined ? patch.objectSelectionMode : active.objectSelectionMode;
     const nextModel = patch.bgRemovalModel !== undefined ? patch.bgRemovalModel : active.bgRemovalModel;
     const nextDevice = patch.bgRemovalDevice !== undefined ? patch.bgRemovalDevice : active.bgRemovalDevice;
     const nextWorker = patch.bgRemovalWorker !== undefined ? patch.bgRemovalWorker : active.bgRemovalWorker;
@@ -278,18 +277,16 @@ export default function ContourApp() {
 
     if (active.bgRemoved && active.baseMaskSrc && (
       patch.bgRemovalStrength !== undefined ||
-      patch.paintMaskSrc !== undefined ||
-      patch.objectMaskSrc !== undefined ||
-      patch.objectSelectionMode !== undefined
+      patch.paintMaskSrc !== undefined
     )) {
       try {
         nextProcessed = await applyBgRemovalMasks(
           active.originalSrc,
           active.baseMaskSrc,
           nextPaintMask,
-          nextObjectMask,
+          null,
           nextStrength,
-          nextObjectMode
+          null
         );
       } catch (err) {
         console.error("Failed to re-composite masks:", err);
@@ -301,14 +298,44 @@ export default function ContourApp() {
         ...a,
         bgRemovalStrength: nextStrength,
         paintMaskSrc: nextPaintMask,
-        objectMaskSrc: nextObjectMask,
-        objectSelectionMode: nextObjectMode,
         bgRemovalModel: nextModel,
         bgRemovalDevice: nextDevice,
         bgRemovalWorker: nextWorker,
         processedSrc: nextProcessed,
       } : a
     ));
+  };
+
+  // ----- Magic brush stroke (Erase / Restore) -----
+  const onBrushStroke = async (strokeSrc: string, mode: "remove" | "restore") => {
+    if (!active) return;
+    try {
+      const region = magicBrush
+        ? await magicExpandSelection(active.originalSrc, strokeSrc, mode)
+        : strokeSrc;
+      const mergedPaint = await mergeMasks(active.paintMaskSrc, region);
+
+      // Recompose. Restore needs an existing base matte; Erase works even before
+      // background removal (it simply knocks out the painted pixels of the original).
+      let nextProcessed = active.processedSrc;
+      if (active.bgRemoved || mode === "remove") {
+        nextProcessed = await applyBgRemovalMasks(
+          active.originalSrc,
+          active.baseMaskSrc,
+          mergedPaint,
+          null,
+          active.bgRemovalStrength,
+          null
+        );
+      }
+
+      setArtboards((prev) => prev.map((a) =>
+        a.id === active.id ? { ...a, paintMaskSrc: mergedPaint, processedSrc: nextProcessed } : a
+      ));
+    } catch (err) {
+      console.error("Brush stroke failed:", err);
+      showToast("Brush failed");
+    }
   };
 
   const onClearBrushEdits = async () => {
@@ -323,18 +350,20 @@ export default function ContourApp() {
           null,
           null,
           active.bgRemovalStrength,
-          active.objectSelectionMode
+          null
         );
       } catch (err) {
         console.error("Failed to clear brush edits:", err);
       }
+    } else {
+      // Erase-before-removal edits: clearing returns to the untouched original.
+      nextProcessed = null;
     }
 
     setArtboards((prev) => prev.map((a) =>
       a.id === active.id ? {
         ...a,
         paintMaskSrc: null,
-        objectMaskSrc: null,
         processedSrc: nextProcessed,
       } : a
     ));
@@ -403,9 +432,9 @@ export default function ContourApp() {
           active.originalSrc,
           baseMask,
           active.paintMaskSrc,
-          active.objectMaskSrc,
+          null,
           active.bgRemovalStrength,
-          active.objectSelectionMode
+          null
         );
         working = { ...active, processedSrc: finalCutout, baseMaskSrc: baseMask, bgRemoved: true };
         setBgProgress(null);
@@ -431,12 +460,14 @@ export default function ContourApp() {
         visible: true,
         baseMaskSrc: working.baseMaskSrc ?? null,
         paintMaskSrc: working.paintMaskSrc ?? null,
-        objectMaskSrc: working.objectMaskSrc ?? null,
         bgRemovalStrength: working.bgRemovalStrength ?? 50,
-        objectSelectionMode: working.objectSelectionMode ?? "keep",
         bgRemovalModel: working.bgRemovalModel ?? "isnet",
         bgRemovalDevice: working.bgRemovalDevice ?? "cpu",
         bgRemovalWorker: working.bgRemovalWorker ?? true,
+        blurBackground: active.blurBackground,
+        blurAmount: active.blurAmount,
+        shadow: active.shadow,
+        shadowOpacity: active.shadowOpacity,
       };
 
       setArtboards((prev) => {
@@ -544,8 +575,8 @@ export default function ContourApp() {
           brushSize={brushSize}
           showComparisonSlider={showComparisonSlider}
           isComparing={isComparing}
-          onUpdatePaintMask={(src) => onUpdateBgRemoval({ paintMaskSrc: src })}
-          onUpdateObjectMask={(src) => onUpdateBgRemoval({ objectMaskSrc: src })}
+          onBrushStroke={onBrushStroke}
+          onCopyImage={onCopy}
         />
 
         <RightPanel
@@ -578,6 +609,8 @@ export default function ContourApp() {
           onPickFiles={() => fileInputRef.current?.click()}
           brushSize={brushSize}
           setBrushSize={setBrushSize}
+          magicBrush={magicBrush}
+          setMagicBrush={setMagicBrush}
           showComparisonSlider={showComparisonSlider}
           setShowComparisonSlider={setShowComparisonSlider}
           isComparing={isComparing}

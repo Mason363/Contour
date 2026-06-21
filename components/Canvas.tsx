@@ -5,7 +5,7 @@ import { Plus, Minus, Maximize2, Upload, Scissors } from "lucide-react";
 import type { Artboard, CropRect, BackgroundLayer } from "@/lib/types";
 import { activeSrc } from "@/lib/types";
 
-export type Tool = "move" | "crop" | "background" | "brush-object" | "brush-include" | "brush-remove";
+export type Tool = "move" | "crop" | "background" | "brush-include" | "brush-remove";
 
 interface Props {
   artboard: Artboard | null;
@@ -21,8 +21,8 @@ interface Props {
   brushSize: number;
   showComparisonSlider: boolean;
   isComparing: boolean;
-  onUpdatePaintMask: (src: string) => void;
-  onUpdateObjectMask: (src: string) => void;
+  onBrushStroke: (strokeSrc: string, mode: "remove" | "restore") => void;
+  onCopyImage?: () => void;
 }
 
 const EXAMPLES = ["bird.jpg", "dog.jpg", "lotus.jpg", "trees.jpg", "canyon.jpg"];
@@ -42,8 +42,8 @@ export default function Canvas({
   brushSize,
   showComparisonSlider,
   isComparing,
-  onUpdatePaintMask,
-  onUpdateObjectMask,
+  onBrushStroke,
+  onCopyImage,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
@@ -118,23 +118,19 @@ export default function Canvas({
     };
   }, [artboard?.id, artboard?.bgRemoved]);
 
-  // Draw existing mask onto active brush canvas
+  // The brush canvas only ever holds the in-progress stroke; committed strokes are
+  // shown by the low-opacity guide overlay. Clear it whenever the board/tool changes.
   useEffect(() => {
     const canvas = brushCanvasRef.current;
-    if (!canvas || !artboard) return;
-    const ctx = canvas.getContext("2d")!;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
-    const maskSrc = tool === "brush-object" ? artboard.objectMaskSrc : artboard.paintMaskSrc;
-    if (maskSrc) {
-      const img = new Image();
-      img.onload = () => {
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      };
-      img.src = maskSrc;
-    }
-  }, [artboard?.id, tool, artboard?.paintMaskSrc, artboard?.objectMaskSrc]);
+    if (!canvas) return;
+    canvas.getContext("2d")!.clearRect(0, 0, canvas.width, canvas.height);
+  }, [artboard?.id, tool, artboard?.paintMaskSrc]);
 
+  const brushColor = tool === "brush-include" ? "rgb(0, 255, 0)" : "rgb(255, 0, 0)";
+
+  // Map a pointer event to ORIGINAL image pixel coordinates. The brush canvas is the
+  // full image positioned at -crop.x/-crop.y, so paint masks line up with the
+  // compositing pipeline (which works in original-image space).
   const getMousePos = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = brushCanvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
@@ -150,17 +146,14 @@ export default function Canvas({
     isDrawing.current = true;
     const pos = getMousePos(e);
     lastPos.current = pos;
-    
+
     const canvas = brushCanvasRef.current;
     if (canvas) {
       const ctx = canvas.getContext("2d")!;
+      ctx.clearRect(0, 0, canvas.width, canvas.height); // fresh stroke
       ctx.beginPath();
       ctx.arc(pos.x, pos.y, brushSize / 2, 0, Math.PI * 2);
-      ctx.fillStyle = tool === "brush-include" 
-        ? "rgb(0, 255, 0)" 
-        : tool === "brush-remove" 
-        ? "rgb(255, 0, 0)" 
-        : "rgb(0, 0, 255)"; // object selection (blue)
+      ctx.fillStyle = brushColor;
       ctx.fill();
     }
   };
@@ -168,20 +161,16 @@ export default function Canvas({
   const drawBrush = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const pos = getMousePos(e);
     setCursorPos(pos);
-    
+
     if (!isDrawing.current) return;
-    
+
     const canvas = brushCanvasRef.current;
     if (canvas) {
       const ctx = canvas.getContext("2d")!;
       ctx.beginPath();
       ctx.moveTo(lastPos.current.x, lastPos.current.y);
       ctx.lineTo(pos.x, pos.y);
-      ctx.strokeStyle = tool === "brush-include" 
-        ? "rgb(0, 255, 0)" 
-        : tool === "brush-remove" 
-        ? "rgb(255, 0, 0)" 
-        : "rgb(0, 0, 255)";
+      ctx.strokeStyle = brushColor;
       ctx.lineWidth = brushSize;
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
@@ -196,11 +185,7 @@ export default function Canvas({
     const canvas = brushCanvasRef.current;
     if (canvas) {
       const dataUrl = canvas.toDataURL("image/png");
-      if (tool === "brush-object") {
-        onUpdateObjectMask(dataUrl);
-      } else {
-        onUpdatePaintMask(dataUrl);
-      }
+      onBrushStroke(dataUrl, tool === "brush-remove" ? "remove" : "restore");
     }
   };
 
@@ -226,7 +211,7 @@ export default function Canvas({
     document.addEventListener("mouseup", onUp);
   };
 
-  const isBrushingTool = (t: string) => ["brush-include", "brush-remove", "brush-object"].includes(t);
+  const isBrushingTool = (t: string) => ["brush-include", "brush-remove"].includes(t);
 
   // ----- Fit to view -----
   const fit = useCallback(() => {
@@ -653,33 +638,38 @@ export default function Canvas({
                 />
               )}
 
-              {/* User painted mask overlay (semi-transparent guide) */}
-              {isBrushingTool(tool) && (tool === "brush-object" ? artboard.objectMaskSrc : artboard.paintMaskSrc) && (
+              {/* Committed paint mask (low-opacity guide), in original-image space */}
+              {isBrushingTool(tool) && artboard.paintMaskSrc && (
                 <img
-                  src={tool === "brush-object" ? artboard.objectMaskSrc! : artboard.paintMaskSrc!}
+                  src={artboard.paintMaskSrc}
                   alt="brush-guide"
                   draggable={false}
                   style={{
                     position: "absolute",
-                    inset: 0,
+                    left: cropMode ? 0 : -artboard.crop.x,
+                    top: cropMode ? 0 : -artboard.crop.y,
+                    width: artboard.width,
+                    height: artboard.height,
                     opacity: 0.4,
                     pointerEvents: "none",
                     zIndex: 9,
-                    width: "100%",
-                    height: "100%",
                   }}
                 />
               )}
 
-              {/* Brush canvas overlay */}
+              {/* Live brush stroke surface (full image, low opacity) */}
               {isBrushingTool(tool) && artboard.visible && (
                 <canvas
                   ref={brushCanvasRef}
-                  width={displayW}
-                  height={displayH}
+                  width={artboard.width}
+                  height={artboard.height}
                   style={{
                     position: "absolute",
-                    inset: 0,
+                    left: cropMode ? 0 : -artboard.crop.x,
+                    top: cropMode ? 0 : -artboard.crop.y,
+                    width: artboard.width,
+                    height: artboard.height,
+                    opacity: 0.5,
                     zIndex: 10,
                     cursor: "crosshair",
                     pointerEvents: "auto",
@@ -696,8 +686,8 @@ export default function Canvas({
                 <div
                   style={{
                     position: "absolute",
-                    left: cursorPos.x,
-                    top: cursorPos.y,
+                    left: cursorPos.x - (cropMode ? 0 : artboard.crop.x),
+                    top: cursorPos.y - (cropMode ? 0 : artboard.crop.y),
                     width: brushSize,
                     height: brushSize,
                     borderRadius: "50%",

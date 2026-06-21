@@ -79,17 +79,11 @@ export interface Artboard {
   /** The raw AI background removal confidence mask (alpha) as a PNG data URL. */
   baseMaskSrc: string | null;
 
-  /** Grayscale/RGB edits from user painting (green = include, red = remove) as a PNG data URL. */
+  /** Magic-brush edits from user painting (green = restore, red = remove) as a PNG data URL. */
   paintMaskSrc: string | null;
 
-  /** Object selection mask (blue) as a PNG data URL. */
-  objectMaskSrc: string | null;
-
-  /** Confidence threshold for background removal, 0 to 100. */
+  /** Removal sensitivity, 0 to 100 (50 = neutral; lower chokes, higher spreads). */
   bgRemovalStrength: number;
-
-  /** Object selection action mode. */
-  objectSelectionMode: "keep" | "remove" | null;
 
   /** Background removal model size/version. */
   bgRemovalModel: "isnet" | "isnet_fp16" | "isnet_quint8";
@@ -99,6 +93,15 @@ export interface Artboard {
 
   /** Whether background removal runs in a Web Worker thread. */
   bgRemovalWorker: boolean;
+
+  /** Background effect: blur the original photo behind the cut-out subject. */
+  blurBackground: boolean;
+  /** Blur radius, 0..100 (mapped to px). */
+  blurAmount: number;
+  /** Background effect: drop a shadow behind the cut-out subject. */
+  shadow: boolean;
+  /** Shadow opacity, 0..100. */
+  shadowOpacity: number;
 }
 
 export const defaultTrace = (): TraceSettings => ({

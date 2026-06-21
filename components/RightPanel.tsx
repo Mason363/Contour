@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import {
   Scissors, Wand2, Eraser, ImageDown, Crop, Sparkles, Loader2,
   RotateCcw, Image as ImageIcon, Copy, Package, Download,
-  AlertCircle, ChevronDown, ChevronUp
+  AlertCircle, ChevronDown, ChevronUp, Plus, Minus
 } from "lucide-react";
 import type { Artboard, TraceSettings, CropRect } from "@/lib/types";
 import type { Tool } from "./Canvas";
@@ -51,6 +51,8 @@ interface Props {
 
   brushSize: number;
   setBrushSize: (s: number) => void;
+  magicBrush: boolean;
+  setMagicBrush: (v: boolean) => void;
   showComparisonSlider: boolean;
   setShowComparisonSlider: (s: boolean) => void;
   isComparing: boolean;
@@ -58,8 +60,6 @@ interface Props {
   onUpdateBgRemoval: (patch: {
     bgRemovalStrength?: number;
     paintMaskSrc?: string | null;
-    objectMaskSrc?: string | null;
-    objectSelectionMode?: "keep" | "remove" | null;
     bgRemovalModel?: "isnet" | "isnet_fp16" | "isnet_quint8";
     bgRemovalDevice?: "cpu" | "gpu";
     bgRemovalWorker?: boolean;
@@ -231,68 +231,50 @@ export default function RightPanel(p: Props) {
             </label>
           </div>
 
-          {/* Brushing & Fine Tuning Tools */}
+          {/* Magic Brush — Erase / Restore */}
           <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 10 }}>
-            {/* Tool Selection */}
             <div className="field" style={{ marginBottom: 4 }}>
-              <label className="field-label">Active Tool</label>
-              <div className="segmented" style={{ background: "var(--active-bg)", borderRadius: 6, padding: 2 }}>
-                <span
-                  className={`segment ${p.tool === "move" ? "active" : ""}`}
-                  style={{ flex: 1, textAlign: "center", fontSize: "0.68rem", cursor: "pointer", padding: "4px 0", borderRadius: 4 }}
-                  onClick={() => p.setTool("move")}
+              <label className="field-label">Magic Brush</label>
+              <div className="btn-row">
+                <button
+                  className={`btn ${p.tool === "brush-remove" ? "btn-primary" : ""}`}
+                  onClick={() => p.setTool(p.tool === "brush-remove" ? "move" : "brush-remove")}
+                  style={{ flexDirection: "column", gap: 2, padding: "8px 0" }}
                 >
-                  Move
-                </span>
-                <span
-                  className={`segment ${p.tool === "brush-object" ? "active" : ""}`}
-                  style={{ flex: 1, textAlign: "center", fontSize: "0.68rem", cursor: "pointer", padding: "4px 0", borderRadius: 4 }}
-                  onClick={() => p.setTool("brush-object")}
+                  <Minus size={15} /> Erase
+                </button>
+                <button
+                  className={`btn ${p.tool === "brush-include" ? "btn-primary" : ""}`}
+                  disabled={!a.bgRemoved}
+                  title={a.bgRemoved ? "" : "Remove the background first"}
+                  onClick={() => a.bgRemoved && p.setTool(p.tool === "brush-include" ? "move" : "brush-include")}
+                  style={{ flexDirection: "column", gap: 2, padding: "8px 0" }}
                 >
-                  Select Obj
-                </span>
-                <span
-                  className={`segment ${p.tool === "brush-include" ? "active" : ""} ${!a.bgRemoved ? "disabled" : ""}`}
-                  style={{ flex: 1, textAlign: "center", fontSize: "0.68rem", cursor: a.bgRemoved ? "pointer" : "default", padding: "4px 0", borderRadius: 4, opacity: a.bgRemoved ? 1 : 0.4, pointerEvents: a.bgRemoved ? "auto" : "none" }}
-                  onClick={() => a.bgRemoved && p.setTool("brush-include")}
-                >
-                  Restore
-                </span>
-                <span
-                  className={`segment ${p.tool === "brush-remove" ? "active" : ""} ${!a.bgRemoved ? "disabled" : ""}`}
-                  style={{ flex: 1, textAlign: "center", fontSize: "0.68rem", cursor: a.bgRemoved ? "pointer" : "default", padding: "4px 0", borderRadius: 4, opacity: a.bgRemoved ? 1 : 0.4, pointerEvents: a.bgRemoved ? "auto" : "none" }}
-                  onClick={() => a.bgRemoved && p.setTool("brush-remove")}
-                >
-                  Erase
-                </span>
+                  <Plus size={15} /> Restore
+                </button>
               </div>
             </div>
 
-            {/* Object Selection Mode (Only when Select Obj tool is active) */}
-            {p.tool === "brush-object" && (
-              <div className="field" style={{ marginBottom: 4 }}>
-                <label className="field-label">Object Selection Mode</label>
-                <select
-                  className="select"
-                  value={a.objectSelectionMode || "keep"}
-                  onChange={(e) => p.onUpdateBgRemoval({ objectSelectionMode: e.target.value as any })}
-                >
-                  <option value="keep">Keep Selected Object</option>
-                  <option value="remove">Remove Selected Object</option>
-                </select>
-              </div>
-            )}
-
-            {/* Brush Size Slider (Only when a brush is active) */}
-            {["brush-include", "brush-remove", "brush-object"].includes(p.tool) && (
-              <Slider
-                label="Brush Diameter"
-                value={p.brushSize}
-                min={5}
-                max={100}
-                step={1}
-                onChange={p.setBrushSize}
-              />
+            {/* Brush controls (only while a brush is active) */}
+            {["brush-include", "brush-remove"].includes(p.tool) && (
+              <>
+                <Slider
+                  label="Brush Size"
+                  value={p.brushSize}
+                  min={5}
+                  max={100}
+                  step={1}
+                  onChange={p.setBrushSize}
+                />
+                <label className="check" style={{ fontSize: "0.74rem", display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginBottom: 0 }}>
+                  <input
+                    type="checkbox"
+                    checked={p.magicBrush}
+                    onChange={(e) => p.setMagicBrush(e.target.checked)}
+                  />
+                  Auto-detect (expands your stroke to the whole object)
+                </label>
+              </>
             )}
 
             {/* Removal Strength Slider */}
@@ -308,7 +290,7 @@ export default function RightPanel(p: Props) {
             )}
 
             {/* Clear Brush Edits */}
-            {(a.paintMaskSrc || a.objectMaskSrc) && (
+            {a.paintMaskSrc && (
               <button
                 className="btn btn-danger btn-block"
                 onClick={p.onClearBrushEdits}

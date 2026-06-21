@@ -23,6 +23,135 @@ export const extractAlphaMask = async (cutoutSrc: string): Promise<string> => {
 };
 
 /**
+ * "Magic" expansion of a brush stroke into the whole object the user is pointing
+ * at. Runs a colour-similarity region grow (magic-wand / flood fill) seeded by the
+ * stroke: it spreads across smoothly-coloured neighbours and stops at strong edges,
+ * bounded to colours close to the seed's mean so it can't flood the whole frame.
+ *
+ * Returns a paint mask (red = remove, green = restore) at the original resolution.
+ * Runs on a downscaled copy for speed, then upsamples the result.
+ */
+export const magicExpandSelection = async (
+  originalSrc: string,
+  strokeSrc: string,
+  mode: "remove" | "restore",
+): Promise<string> => {
+  const orig = await loadImage(originalSrc);
+  const W = orig.naturalWidth;
+  const H = orig.naturalHeight;
+  const MAXWORK = 560;
+  const scale = Math.min(1, MAXWORK / Math.max(W, H));
+  const w = Math.max(1, Math.round(W * scale));
+  const h = Math.max(1, Math.round(H * scale));
+
+  const oc = document.createElement("canvas");
+  oc.width = w; oc.height = h;
+  const octx = oc.getContext("2d", { willReadFrequently: true })!;
+  octx.drawImage(orig, 0, 0, w, h);
+  const od = octx.getImageData(0, 0, w, h).data;
+
+  const strokeImg = await loadImage(strokeSrc);
+  const sc = document.createElement("canvas");
+  sc.width = w; sc.height = h;
+  const sctx = sc.getContext("2d", { willReadFrequently: true })!;
+  sctx.drawImage(strokeImg, 0, 0, w, h);
+  const sd = sctx.getImageData(0, 0, w, h).data;
+
+  const N = w * h;
+  const visited = new Uint8Array(N);
+  const queue = new Int32Array(N);
+  let qlen = 0;
+
+  // Seeds: where the stroke painted. Also accumulate the seed mean colour.
+  let sr = 0, sg = 0, sb = 0, seedCount = 0;
+  for (let p = 0; p < N; p++) {
+    if (sd[p * 4 + 3] > 40) {
+      visited[p] = 1;
+      queue[qlen++] = p;
+      const i = p * 4;
+      sr += od[i]; sg += od[i + 1]; sb += od[i + 2];
+      seedCount++;
+    }
+  }
+  if (seedCount === 0) return strokeSrc; // nothing painted; return as-is
+  sr /= seedCount; sg /= seedCount; sb /= seedCount;
+
+  const LOCAL_TOL = 30;   // adjacency gradient tolerance (stops at edges)
+  const SEED_TOL = 72;    // max distance from the seed mean colour (bounds the grow)
+  const seedTolSq = SEED_TOL * SEED_TOL;
+  const localTolSq = LOCAL_TOL * LOCAL_TOL;
+
+  let head = 0;
+  while (head < qlen) {
+    const p = queue[head++];
+    const x = p % w;
+    const y = (p - x) / w;
+    const i = p * 4;
+    const r = od[i], g = od[i + 1], b = od[i + 2];
+    // 4-connected neighbours
+    const neigh = [
+      x > 0 ? p - 1 : -1,
+      x < w - 1 ? p + 1 : -1,
+      y > 0 ? p - w : -1,
+      y < h - 1 ? p + w : -1,
+    ];
+    for (let k = 0; k < 4; k++) {
+      const np = neigh[k];
+      if (np < 0 || visited[np]) continue;
+      const j = np * 4;
+      const dr = od[j] - r, dg = od[j + 1] - g, db = od[j + 2] - b;
+      if (dr * dr + dg * dg + db * db > localTolSq) continue;
+      const mr = od[j] - sr, mg = od[j + 1] - sg, mb = od[j + 2] - sb;
+      if (mr * mr + mg * mg + mb * mb > seedTolSq) continue;
+      visited[np] = 1;
+      queue[qlen++] = np;
+    }
+  }
+
+  // Paint the grown region in the correct channel.
+  const out = octx.createImageData(w, h);
+  const oData = out.data;
+  const cr = mode === "remove" ? 255 : 0;
+  const cg = mode === "remove" ? 0 : 255;
+  for (let p = 0; p < N; p++) {
+    if (visited[p]) {
+      const i = p * 4;
+      oData[i] = cr; oData[i + 1] = cg; oData[i + 2] = 0; oData[i + 3] = 255;
+    }
+  }
+  sc.getContext("2d")!.clearRect(0, 0, w, h);
+  sctx.putImageData(out, 0, 0);
+
+  // Upsample the small region mask to full resolution.
+  const full = document.createElement("canvas");
+  full.width = W; full.height = H;
+  const fctx = full.getContext("2d")!;
+  fctx.imageSmoothingEnabled = false;
+  fctx.drawImage(sc, 0, 0, W, H);
+  return full.toDataURL("image/png");
+};
+
+/** Composite a new paint region on top of the accumulated paint mask (latest wins). */
+export const mergeMasks = async (
+  baseSrc: string | null,
+  addSrc: string,
+): Promise<string> => {
+  const add = await loadImage(addSrc);
+  const W = add.naturalWidth;
+  const H = add.naturalHeight;
+  const canvas = document.createElement("canvas");
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext("2d")!;
+  if (baseSrc) {
+    const base = await loadImage(baseSrc);
+    ctx.drawImage(base, 0, 0, W, H);
+  }
+  ctx.drawImage(add, 0, 0, W, H);
+  return canvas.toDataURL("image/png");
+};
+
+/**
  * Separable grayscale morphology (erode = local min, dilate = local max) used to
  * choke/spread the matte edge. Borders clamp so subjects touching the frame are
  * handled correctly.
