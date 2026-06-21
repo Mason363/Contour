@@ -1,0 +1,30 @@
+{
+  "name": "contour",
+  "version": "1.0.0",
+  "private": true,
+  "description": "100% local, open-source background removal & image vectorization in your browser.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@imgly/background-removal": "^1.7.0",
+    "heic2any": "^0.0.4",
+    "imagetracerjs": "^1.2.6",
+    "jspdf": "^4.2.1",
+    "jszip": "^3.10.1",
+    "lucide-react": "^1.21.0",
+    "next": "^16.2.9",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "utif2": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.0",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "typescript": "^6.0.3"
+  }
+}
