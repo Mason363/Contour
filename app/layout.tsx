@@ -5,6 +5,12 @@ export const metadata: Metadata = {
   title: "Contour | Local Background Removal & Image Vectorization",
   description:
     "100% local, 100% private, open-source background removal and image vectorization. Runs entirely in your browser via WebAssembly — no uploads, no servers.",
+  icons: {
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/favicon.png", type: "image/png" },
+    ],
+  },
 };
 
 export default function RootLayout({
