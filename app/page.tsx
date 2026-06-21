@@ -80,14 +80,15 @@ export default function ContourApp() {
   };
 
   useEffect(() => {
+    // Light theme → black icon, dark theme → white icon. Remove any competing icon
+    // links (e.g. ones injected by metadata) so the themed favicon always wins.
     const href = theme === "light" ? "/favicon-black.png" : "/favicon-white.png";
-    let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement | null;
-    if (!link) {
-      link = document.createElement("link");
-      link.rel = "icon";
-      document.head.appendChild(link);
-    }
+    document.querySelectorAll("link[rel~='icon']").forEach((l) => l.remove());
+    const link = document.createElement("link");
+    link.rel = "icon";
+    link.type = "image/png";
     link.href = href;
+    document.head.appendChild(link);
   }, [theme]);
 
   // ----- Artboard creation -----
